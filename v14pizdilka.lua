@@ -1,29 +1,8 @@
--- GRINGO XP // SHADOW TSB v15 | LocalScript / client-side behavior only
---[[
-██████╗ ██████╗ ██╗███╗   ██╗ ██████╗  ██████╗ 
-██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ██╔═══██╗
-██████╔╝██████╔╝██║██╔██╗ ██║██║  ███╗██║   ██║
-██╔══██╗██╔══██╗██║██║╚██╗██║██║   ██║██║   ██║
-██║  ██║██║  ██║██║██║ ╚████║╚██████╔╝╚██████╔╝
-╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝  ╚═════╝
-SCRIPT HIZOLON PRIVAT SS+
-─────────────────────────
-• INVIS: client-side appearance only; no unverified remote calls
-• SAFE ZONA: армит → TP под карту только при ≤30 HP (жив)
-• AUTO RESET: труп исчезает мгновенно при смерти
-• Позиционирование позади цели на регулируемом расстоянии + пинг-компенсация
-• Компактное широкое меню с прокруткой и выбором цели
-• SPEED: ON/OFF + число + управляемое ускорение при движении
-• AUTO EVADE удалён целиком: чужие атаки не запускают автоматические телепорты
-• RANDOM CYCLE: Garou 1 → 2 → ожидание около центрального Dummy → повтор
-• INSTANT SELECT: касание игрока выполняет немедленную попытку TP
-• TRASH AUTO: непрерывный поиск с подтверждением подбора и повторными попытками
-• THROW SPEED: целочисленная локальная скорость мусорки (бросок контролируется сервером)
-• PICKUP + RETURN: один подбор с попыткой вернуться на прежнее место
-• AIM LOCK: одна выбранная по прицелу цель, светящийся контур без заливки
-Стиль: HIZOLON Fling TSB
-Версия: SS+ (v15 instant select + random Garou skill cycle; no reactive evade)
-]]
+-- NEBULA TSB v16 | Client-side Lua / Delta
+-- Compact tabs, manual targeting, cooldown-aware random cycle, optional HKG Void.
+-- No server-side guarantees: simulated skill inputs may be rejected.
+-- Automatic graphics optimization is reversible and only adjusts visual settings.
+-- This file contains no personal branding or identifiers.
 
 -- ============================================================
 -- SERVICES
@@ -89,49 +68,145 @@ local CONFIG = {
     RANDOM_CD1 = 18,
     RANDOM_CD2 = 21,
     RANDOM_GAP_1_TO_2 = 3.0,
-    RANDOM_POST_2 = 1.4,
     RANDOM_TARGET_RANGE = 5,
-    RANDOM_SAFE_MIN_ENEMY_DISTANCE = 25,
     RANDOM_AUTOUSE = true,
 }
 
 -- ============================================================
--- GUI SETUP
+-- REVERSIBLE CLIENT VISUAL OPTIMIZATION (starts automatically)
 -- ============================================================
-local oldGui = CoreGui:FindFirstChild("GringoXPShadowTSBv15")
-if oldGui then
-    warn("GRINGO XP SHADOW v15 is already open. Close it before re-running.")
-    return
+local Visual = {}
+do
+local Lighting = game:GetService("Lighting")
+local RenderOptimizer = {
+    active = false, wanted = false, restoring = false, queue = {}, index = 1, worker = nil,
+    originals = setmetatable({}, {__mode = "k"}), listeners = {},
+}
+local function rememberVisual(obj, property, newValue)
+    local ok, previous = pcall(function() return obj[property] end)
+    if not ok or previous == newValue then return end
+    local saved = RenderOptimizer.originals[obj]
+    if not saved then
+        saved = {}
+        RenderOptimizer.originals[obj] = saved
+    end
+    if saved[property] == nil then saved[property] = previous end
+    pcall(function() obj[property] = newValue end)
+end
+local function belongsToCharacter(obj)
+    local parent = obj
+    while parent and parent ~= workspace do
+        if parent:IsA("Model") and Players:GetPlayerFromCharacter(parent) then return true end
+        parent = parent.Parent
+    end
+    return false
+end
+local function processVisual(obj)
+    if not obj or not obj.Parent then return end
+    if obj:IsA("BasePart") and not belongsToCharacter(obj) then
+        rememberVisual(obj, "CastShadow", false)
+    elseif obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
+        or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+        if obj:IsDescendantOf(Lighting) then
+            rememberVisual(obj, "Enabled", false)
+        end
+    end
+end
+local function startVisualOptimization()
+    RenderOptimizer.wanted = true
+    if RenderOptimizer.active or RenderOptimizer.restoring then return end
+    RenderOptimizer.active = true
+    rememberVisual(Lighting, "GlobalShadows", false)
+    for _, item in ipairs(Lighting:GetDescendants()) do
+        processVisual(item)
+    end
+    RenderOptimizer.queue = workspace:GetDescendants()
+    RenderOptimizer.index = 1
+    table.insert(RenderOptimizer.listeners, workspace.DescendantAdded:Connect(function(obj)
+        if RenderOptimizer.active and obj:IsA("BasePart") then
+            table.insert(RenderOptimizer.queue, obj)
+        end
+    end))
+    table.insert(RenderOptimizer.listeners, Lighting.DescendantAdded:Connect(function(obj)
+        if RenderOptimizer.active then processVisual(obj) end
+    end))
+    RenderOptimizer.worker = RunService.Heartbeat:Connect(function()
+        if not RenderOptimizer.active then return end
+        -- Budgeted, not full-map work each frame.
+        for _ = 1, 75 do
+            local obj = RenderOptimizer.queue[RenderOptimizer.index]
+            if not obj then break end
+            processVisual(obj)
+            RenderOptimizer.index = RenderOptimizer.index + 1
+        end
+        if RenderOptimizer.index > #RenderOptimizer.queue then
+            RenderOptimizer.queue = {}
+            RenderOptimizer.index = 1
+        end
+    end)
+end
+local function stopVisualOptimization()
+    RenderOptimizer.wanted = false
+    if not RenderOptimizer.active then return end
+    RenderOptimizer.active = false
+    if RenderOptimizer.worker then
+        RenderOptimizer.worker:Disconnect()
+        RenderOptimizer.worker = nil
+    end
+    for _, connection in ipairs(RenderOptimizer.listeners) do
+        connection:Disconnect()
+    end
+    RenderOptimizer.listeners = {}
+    RenderOptimizer.queue = {}
+    -- Return prior graphics values incrementally to avoid one-frame spikes.
+    local prior = RenderOptimizer.originals
+    RenderOptimizer.restoring = true
+    RenderOptimizer.originals = setmetatable({}, {__mode = "k"})
+    task.spawn(function()
+        local counter = 0
+        for obj, properties in pairs(prior) do
+            for property, original in pairs(properties) do
+                pcall(function() obj[property] = original end)
+            end
+            counter = counter + 1
+            if counter % 80 == 0 then task.wait() end
+        end
+        RenderOptimizer.restoring = false
+        if RenderOptimizer.wanted then startVisualOptimization() end
+    end)
 end
 
-local oldV14 = CoreGui:FindFirstChild("GringoXPShadowTSBv14")
-local oldV13 = CoreGui:FindFirstChild("GringoXPShadowTSBv13")
-local oldV12 = CoreGui:FindFirstChild("GringoXPShadowTSBv12")
-local oldV11 = CoreGui:FindFirstChild("GringoXPShadowTSBv11")
-local oldV10 = CoreGui:FindFirstChild("GringoXPShadowTSBv10")
-local oldV9 = CoreGui:FindFirstChild("GringoXPShadowTSBv9")
-local oldV8 = CoreGui:FindFirstChild("GringoXPShadowTSBv8")
-if oldV14 or oldV13 or oldV12 or oldV11 or oldV10 or oldV9 or oldV8 then
-    warn("Older SHADOW version is still running. Restart Roblox before running v15 to avoid conflicting teleport loops.")
-    return
+Visual.state = RenderOptimizer
+Visual.start = startVisualOptimization
+Visual.stop = stopVisualOptimization
+end
+
+-- ============================================================
+-- GUI SETUP
+-- ============================================================
+for _, gui in ipairs(CoreGui:GetChildren()) do
+    if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or string.find(gui.Name, "ShadowTSBv", 1, true)) then
+        warn("Another TSB panel appears to be running. Restart Roblox before starting NEBULA v16.")
+        return
+    end
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "GringoXPShadowTSBv15"
+ScreenGui.Name = "NebulaTSBv16"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
 local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(480, 680)
-local PANEL_W = math.max(300, math.min(474, math.floor(viewport.X - 24)))
-local PANEL_H = math.max(295, math.min(520, math.floor(viewport.Y - 38)))
+local PANEL_W = math.max(260, math.min(326, math.floor(viewport.X - 22)))
+local PANEL_H = math.max(275, math.min(420, math.floor(viewport.Y - 34)))
 MainFrame.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
 MainFrame.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(19, 22, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
-MainFrame.Draggable = true
+MainFrame.Draggable = false
 MainFrame.Parent = ScreenGui
 
 local MainFrameCorner = Instance.new("UICorner")
@@ -144,9 +219,10 @@ MainFrameStroke.Thickness = 1.2
 MainFrameStroke.Parent = MainFrame
 
 local TitleBar = Instance.new("Frame")
-TitleBar.Size = UDim2.new(1, 0, 0, 21)
+TitleBar.Size = UDim2.new(1, 0, 0, 32)
 TitleBar.BackgroundColor3 = Color3.fromRGB(17, 44, 58)
 TitleBar.BorderSizePixel = 0
+TitleBar.Active = true
 TitleBar.Parent = MainFrame
 
 local TitleBarCorner = Instance.new("UICorner")
@@ -154,25 +230,25 @@ TitleBarCorner.CornerRadius = UDim.new(0, 4)
 TitleBarCorner.Parent = TitleBar
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, -48, 1, 0)
+Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "◆ GRINGO XP  •  SHADOW v15"
+Title.Text = "◈ NEBULA TSB • v16"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
-Title.TextSize = 11
+Title.TextSize = 14
 Title.TextXAlignment = Enum.TextXAlignment.Left
-Title.Position = UDim2.new(0, 7, 0, 0)
+Title.Position = UDim2.new(0, 9, 0, 0)
 Title.Parent = TitleBar
 
 local CloseButton = Instance.new("TextButton")
-CloseButton.Position = UDim2.new(1, -21, 0, 0)
-CloseButton.Size = UDim2.new(0, 21, 0, 21)
+CloseButton.Position = UDim2.new(1, -32, 0, 1)
+CloseButton.Size = UDim2.fromOffset(30, 30)
 CloseButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
 CloseButton.BorderSizePixel = 0
 CloseButton.Text = "X"
 CloseButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 CloseButton.Font = Enum.Font.SourceSansBold
-CloseButton.TextSize = 11
+CloseButton.TextSize = 15
 CloseButton.Parent = TitleBar
 
 local CloseCorner = Instance.new("UICorner")
@@ -181,14 +257,14 @@ CloseCorner.Parent = CloseButton
 
 local MinimizeButton = Instance.new("TextButton")
 MinimizeButton.Name = "Minimize"
-MinimizeButton.Position = UDim2.new(1, -42, 0, 0)
-MinimizeButton.Size = UDim2.fromOffset(21, 21)
+MinimizeButton.Position = UDim2.new(1, -64, 0, 1)
+MinimizeButton.Size = UDim2.fromOffset(30, 30)
 MinimizeButton.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
 MinimizeButton.BorderSizePixel = 0
 MinimizeButton.Text = "-"
 MinimizeButton.TextColor3 = Color3.new(1, 1, 1)
 MinimizeButton.Font = Enum.Font.SourceSansBold
-MinimizeButton.TextSize = 15
+MinimizeButton.TextSize = 21
 MinimizeButton.Parent = TitleBar
 
 local MinCorner = Instance.new("UICorner")
@@ -196,16 +272,6 @@ MinCorner.CornerRadius = UDim.new(0, 4)
 MinCorner.Parent = MinimizeButton
 
 local minimized = false
-MinimizeButton.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    MainFrame.Size = UDim2.fromOffset(PANEL_W, minimized and 21 or PANEL_H)
-    MinimizeButton.Text = minimized and "+" or "-"
-    for _, child in ipairs(MainFrame:GetChildren()) do
-        if child:IsA("GuiObject") and child ~= TitleBar then
-            child.Visible = not minimized
-        end
-    end
-end)
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Position = UDim2.new(0, 7, 0, 28)
@@ -405,127 +471,251 @@ TrashInfo.TextColor3 = Color3.fromRGB(160, 185, 212)
 TrashInfo.Text = "TRASH: OFF • manual pickup/throw M1\nServer controls item physics and damage."
 TrashInfo.Parent = MainFrame
 
--- Compact wide, vertically scrollable controls. Player list scrolls separately.
+local Refs = {}
+do
+-- ============================================================
+-- NEBULA v16 | Compact mobile panel, four pages and draggable title
+-- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "◆ GRINGO XP SHADOW • v15"
-SelectionFrame.Position = UDim2.fromOffset(7, 49)
-SelectionFrame.Size = UDim2.new(1, -14, 0, 112)
-StartButton.Position = UDim2.fromOffset(7, 167)
-StartButton.Size = UDim2.new(0.5, -11, 0, 27)
-StopButton.Position = UDim2.new(0.5, 3, 0, 167)
-StopButton.Size = UDim2.new(0.5, -10, 0, 27)
+Title.Text = "◈ NEBULA TSB • v16"
+StatusLabel.Parent = MainFrame
+StatusLabel.Position = UDim2.fromOffset(10, 38)
+StatusLabel.Size = UDim2.new(1, -20, 0, 21)
+StatusLabel.TextSize = 12
+StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
 
-local ControlsScroll = Instance.new("ScrollingFrame")
-ControlsScroll.Name = "ControlsScroll"
-ControlsScroll.Position = UDim2.fromOffset(7, 274)
-ControlsScroll.Size = UDim2.new(1, -14, 1, -282)
-ControlsScroll.CanvasSize = UDim2.fromOffset(0, 483)
-ControlsScroll.ScrollBarThickness = 5
-ControlsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
-ControlsScroll.BackgroundColor3 = Color3.fromRGB(25, 29, 40)
-ControlsScroll.BorderSizePixel = 0
-ControlsScroll.Active = true
-ControlsScroll.Parent = MainFrame
-Instance.new("UICorner", ControlsScroll).CornerRadius = UDim.new(0, 5)
+local TabsBar = Instance.new("Frame")
+TabsBar.Name = "Tabs"
+TabsBar.BackgroundTransparency = 1
+TabsBar.Position = UDim2.fromOffset(7, 64)
+TabsBar.Size = UDim2.new(1, -14, 0, 34)
+TabsBar.Parent = MainFrame
 
-local function placeControl(obj, x, y, width, height)
-    obj.Parent = ControlsScroll
-    obj.Position = UDim2.fromOffset(x, y)
-    obj.Size = UDim2.fromOffset(width, height or 26)
+local PageHost = Instance.new("Frame")
+PageHost.Name = "PageHost"
+PageHost.BackgroundTransparency = 1
+PageHost.Position = UDim2.fromOffset(7, 103)
+PageHost.Size = UDim2.new(1, -14, 1, -112)
+PageHost.ClipsDescendants = true
+PageHost.Parent = MainFrame
+
+local pages, tabButtons = {}, {}
+local tabNames = {"ЦЕЛИ", "ЦИКЛ", "ФУНКЦИИ", "ДОП."}
+for index, tabName in ipairs(tabNames) do
+    local button = Instance.new("TextButton")
+    button.Name = "Tab" .. index
+    button.Size = UDim2.new(0.25, -3, 1, 0)
+    button.Position = UDim2.new((index-1)*0.25, index == 1 and 0 or 1, 0, 0)
+    button.BackgroundColor3 = Color3.fromRGB(31, 40, 55)
+    button.TextColor3 = Color3.fromRGB(220, 235, 248)
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 12
+    button.Text = tabName
+    button.BorderSizePixel = 0
+    button.Parent = TabsBar
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+    tabButtons[index] = button
+    local page = Instance.new("Frame")
+    page.Name = "Page" .. index
+    page.BackgroundColor3 = Color3.fromRGB(24, 29, 41)
+    page.BorderSizePixel = 0
+    page.Size = UDim2.fromScale(1, 1)
+    page.Visible = index == 1
+    page.Parent = PageHost
+    Instance.new("UICorner", page).CornerRadius = UDim.new(0, 6)
+    pages[index] = page
 end
-local FULL_W = PANEL_W - 41
-local HALF_W = math.floor((FULL_W - 8) / 2)
-local RIGHT_X = 7 + HALF_W + 8
-local RIGHT_W = FULL_W - HALF_W - 8
-placeControl(SafeToggle, 7, 8, HALF_W)
-placeControl(ResetToggle, RIGHT_X, 8, RIGHT_W)
-placeControl(InvisToggle, 7, 41, FULL_W)
-placeControl(SpeedToggle, 7, 74, HALF_W)
-placeControl(SpeedInput, RIGHT_X, 74, RIGHT_W)
-placeControl(DistanceLabel, 7, 107, HALF_W)
-placeControl(DistanceInput, RIGHT_X, 107, RIGHT_W)
-placeControl(TpOnceButton, 7, 140, HALF_W)
-placeControl(RandomTPButton, RIGHT_X, 140, RIGHT_W)
-placeControl(TrashAutoButton, 7, 173, FULL_W)
-placeControl(ThrowLabel, 7, 206, HALF_W)
-placeControl(ThrowInput, RIGHT_X, 206, RIGHT_W)
-placeControl(TrashInfo, 7, 306, FULL_W, 52)
-TrashInfo.TextSize = 11
 
-local TrashReturnButton = makeToggle("TRASH RETURN", 7, 263)
-placeControl(TrashReturnButton, 7, 239, FULL_W)
-TrashReturnButton.Text = "PICKUP CAN + RETURN (ONCE)"
-TrashReturnButton.BackgroundColor3 = Color3.fromRGB(68, 70, 135)
-TrashReturnButton.TextColor3 = Color3.new(1, 1, 1)
+local activePage = 1
+local function showPage(index)
+    activePage = index
+    for i, page in ipairs(pages) do
+        page.Visible = i == index
+        tabButtons[i].BackgroundColor3 = i == index and Color3.fromRGB(15, 131, 158) or Color3.fromRGB(31, 40, 55)
+        tabButtons[i].TextColor3 = i == index and Color3.new(1,1,1) or Color3.fromRGB(190, 210, 228)
+    end
+end
+for i, tab in ipairs(tabButtons) do
+    tab.MouseButton1Click:Connect(function() showPage(i) end)
+end
+showPage(1)
 
-local AimToggle = makeToggle("AIM", 7, 263)
-placeControl(AimToggle, 7, 272, FULL_W)
-paintToggle(AimToggle, "AIM LOCK", false)
+local function relayout(obj, parent, x, y, w, h)
+    obj.Parent = parent
+    obj.Position = UDim2.fromOffset(x, y)
+    obj.Size = UDim2.fromOffset(w, h)
+end
+local PAGE_W = PANEL_W - 14
+local PAGE_H = PANEL_H - 112
+local innerW = PAGE_W - 16
+local halfW = math.floor((innerW - 8) / 2)
+local rightX = 8 + halfW + 8
+local rightW = innerW - halfW - 8
+local function infoLabel(parent, message, y, h)
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(157, 185, 204)
+    label.Font = Enum.Font.SourceSans
+    label.TextSize = 12
+    label.TextWrapped = true
+    label.TextYAlignment = Enum.TextYAlignment.Top
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Text = message
+    relayout(label, parent, 8, y, innerW, h)
+    return label
+end
 
--- RANDOM CYCLE controls are outside the scroll for instantaneous STOP.
-local AutoStartButton = makeToggle("RANDOM START", 7, 150)
-AutoStartButton.Position = UDim2.fromOffset(7, 203)
-AutoStartButton.Size = UDim2.fromOffset(math.floor((PANEL_W - 22) / 2), 29)
-AutoStartButton.Text = "▶ RANDOM: START"
-AutoStartButton.TextColor3 = Color3.new(1, 1, 1)
-AutoStartButton.TextSize = 13
-AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+-- Target selection occupies a dedicated scroll; controls do not move when player list updates.
+local TargetPage = pages[1]
+local targetListHeight = math.max(66, PAGE_H - 136)
+relayout(SelectionFrame, TargetPage, 8, 8, innerW, targetListHeight)
+PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
+relayout(StartButton, TargetPage, 8, targetListHeight + 16, halfW, 33)
+relayout(StopButton, TargetPage, rightX, targetListHeight + 16, rightW, 33)
+relayout(TpOnceButton, TargetPage, 8, targetListHeight + 55, halfW, 32)
+relayout(RandomTPButton, TargetPage, rightX, targetListHeight + 55, rightW, 32)
+infoLabel(TargetPage, "Нажми игрока — попытка TP сразу. START включает слежение за выбранной целью.", targetListHeight + 93, 38)
 
-local AutoStopButton = makeToggle("RANDOM STOP", 7, 150)
-AutoStopButton.Position = UDim2.fromOffset(14 + math.floor((PANEL_W - 22) / 2), 203)
-AutoStopButton.Size = UDim2.fromOffset(PANEL_W - 22 - math.floor((PANEL_W - 22) / 2), 29)
-AutoStopButton.Text = "■ RANDOM: STOP"
-AutoStopButton.TextColor3 = Color3.new(1, 1, 1)
-AutoStopButton.TextSize = 13
-AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
-
-local AutoStatus = Instance.new("TextLabel")
-AutoStatus.Name = "RandomCycleStatus"
-AutoStatus.Position = UDim2.fromOffset(8, 236)
-AutoStatus.Size = UDim2.new(1, -16, 0, 31)
-AutoStatus.BackgroundColor3 = Color3.fromRGB(26, 49, 56)
-AutoStatus.TextColor3 = Color3.fromRGB(191, 247, 246)
-AutoStatus.Font = Enum.Font.SourceSansBold
+-- Dedicated auto-cycle page: START/STOP and cooldowns always visible.
+local CyclePage = pages[2]
+relayout(AutoStatus, CyclePage, 8, 8, innerW, 53)
 AutoStatus.TextSize = 12
 AutoStatus.TextWrapped = true
-AutoStatus.Text = "RANDOM CYCLE: OFF | Hero Hunter 1 → 2 → Dummy"
-AutoStatus.Parent = MainFrame
-Instance.new("UICorner", AutoStatus).CornerRadius = UDim.new(0, 5)
-
-local function newCycleInput(name, x, y, value, placeholder, width)
-    local t = Instance.new("TextBox")
-    t.Name = name
-    t.Text = tostring(value)
-    t.PlaceholderText = placeholder
-    t.Position = UDim2.fromOffset(x, y)
-    t.Size = UDim2.fromOffset(width, 30)
-    t.BackgroundColor3 = Color3.fromRGB(40, 46, 62)
-    t.TextColor3 = Color3.new(1, 1, 1)
-    t.TextSize = 12
-    t.Font = Enum.Font.SourceSansBold
-    t.ClearTextOnFocus = false
-    t.Parent = ControlsScroll
-    Instance.new("UICorner", t).CornerRadius = UDim.new(0, 4)
-    return t
-end
-
-local AutoCastToggle = makeToggle("AUTO CAST", 7, FULL_W)
-placeControl(AutoCastToggle, 7, 366, FULL_W, 30)
+AutoStatus.Text = "ЦИКЛ: выключен • при двух CD стоим на месте"
+relayout(AutoStartButton, CyclePage, 8, 69, halfW, 39)
+AutoStartButton.Text = "▶ START"
+relayout(AutoStopButton, CyclePage, rightX, 69, rightW, 39)
+AutoStopButton.Text = "■ STOP"
+relayout(AutoCastToggle, CyclePage, 8, 115, innerW, 34)
 paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
+local function newCycleInput(name, x, value, placeholder, width)
+    local input = Instance.new("TextBox")
+    input.Name = name
+    input.Text = tostring(value)
+    input.PlaceholderText = placeholder
+    input.ClearTextOnFocus = false
+    input.Font = Enum.Font.SourceSansBold
+    input.TextSize = 14
+    input.TextColor3 = Color3.fromRGB(245, 249, 255)
+    input.BackgroundColor3 = Color3.fromRGB(41, 52, 69)
+    relayout(input, CyclePage, x, 157, width, 34)
+    Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
+    return input
+end
+local SkillCD1Input = newCycleInput("CD1", 8, CONFIG.RANDOM_CD1, "Навык 1", halfW)
+local SkillCD2Input = newCycleInput("CD2", rightX, CONFIG.RANDOM_CD2, "Навык 2", rightW)
+local CDsLabel = infoLabel(CyclePage, "Слева CD навыка 1, справа CD навыка 2 (сек). Когда оба недоступны — без TP ждём здесь.", 199, 63)
 
-local SkillCD1Input = newCycleInput("Cooldown1", 7, 405, CONFIG.RANDOM_CD1, "CD 1 sec", HALF_W)
-local SkillCD2Input = newCycleInput("Cooldown2", RIGHT_X, 405, CONFIG.RANDOM_CD2, "CD 2 sec", RIGHT_W)
-local CDsLabel = Instance.new("TextLabel")
-CDsLabel.Position = UDim2.fromOffset(7, 439)
-CDsLabel.Size = UDim2.fromOffset(FULL_W, 33)
-CDsLabel.BackgroundTransparency = 1
-CDsLabel.TextColor3 = Color3.fromRGB(163, 192, 213)
-CDsLabel.TextWrapped = true
-CDsLabel.Font = Enum.Font.SourceSans
-CDsLabel.TextSize = 12
-CDsLabel.Text = "CD (seconds): left = skill 1, right = skill 2. Garou base moves."
-CDsLabel.Parent = ControlsScroll
+-- Feature page can scroll independently (all old buttons remain functional).
+local ControlsScroll = Instance.new("ScrollingFrame")
+ControlsScroll.Name = "FeatureScroll"
+ControlsScroll.BackgroundTransparency = 1
+ControlsScroll.BorderSizePixel = 0
+ControlsScroll.Position = UDim2.fromOffset(3, 4)
+ControlsScroll.Size = UDim2.new(1, -6, 1, -8)
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 418)
+ControlsScroll.ScrollBarThickness = 4
+ControlsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+ControlsScroll.ScrollBarImageColor3 = Color3.fromRGB(24, 211, 240)
+ControlsScroll.Parent = pages[3]
+local function feature(obj, x, y, w, h)
+    relayout(obj, ControlsScroll, x, y, w, h or 34)
+    obj.TextSize = 12
+end
+feature(SafeToggle, 8, 8, halfW, 34)
+feature(ResetToggle, rightX, 8, rightW, 34)
+feature(InvisToggle, 8, 50, innerW, 34)
+feature(SpeedToggle, 8, 92, halfW, 34)
+feature(SpeedInput, rightX, 92, rightW, 34)
+feature(DistanceLabel, 8, 134, halfW, 34)
+feature(DistanceInput, rightX, 134, rightW, 34)
+feature(TrashAutoButton, 8, 176, innerW, 34)
+feature(ThrowLabel, 8, 218, halfW, 34)
+feature(ThrowInput, rightX, 218, rightW, 34)
+feature(TrashReturnButton, 8, 260, innerW, 34)
+TrashReturnButton.Text = "PICKUP + RETURN"
+feature(AimToggle, 8, 302, innerW, 34)
+TrashInfo.Parent = ControlsScroll
+TrashInfo.Position = UDim2.fromOffset(8, 346)
+TrashInfo.Size = UDim2.fromOffset(innerW, 64)
+TrashInfo.TextSize = 11
 
+-- Extras page: render optimization on startup + user-requested external loader.
+local ExtraPage = pages[4]
+local OptimizationToggle = Instance.new("TextButton")
+OptimizationToggle.Name = "OptimizationToggle"
+OptimizationToggle.BorderSizePixel = 0
+OptimizationToggle.Font = Enum.Font.SourceSansBold
+OptimizationToggle.TextSize = 14
+OptimizationToggle.TextColor3 = Color3.new(1, 1, 1)
+relayout(OptimizationToggle, ExtraPage, 8, 9, innerW, 40)
+Instance.new("UICorner", OptimizationToggle).CornerRadius = UDim.new(0, 6)
+infoLabel(ExtraPage, "Оптимизация запускается автоматически: меньше теней и тяжёлых эффектов освещения. Боевые эффекты не удаляются.", 57, 65)
+
+local HKGButton = Instance.new("TextButton")
+HKGButton.Name = "ExternalHKGVoid"
+HKGButton.BorderSizePixel = 0
+HKGButton.BackgroundColor3 = Color3.fromRGB(76, 75, 149)
+HKGButton.TextColor3 = Color3.new(1, 1, 1)
+HKGButton.Font = Enum.Font.SourceSansBold
+HKGButton.TextSize = 15
+HKGButton.Text = "▶ ЗАПУСТИТЬ HKG VOID"
+relayout(HKGButton, ExtraPage, 8, 135, innerW, 43)
+Instance.new("UICorner", HKGButton).CornerRadius = UDim.new(0, 7)
+local HKGStatus = infoLabel(ExtraPage, "Внешний Lua-код загружается только по нажатию. Его безопасность и совместимость не подтверждены.", 186, 78)
+
+-- Minimized bar uses title text width rather than the full panel width.
+local TextService = game:GetService("TextService")
+local textWidth = TextService:GetTextSize(Title.Text, Title.TextSize, Title.Font, Vector2.new(500, 34)).X
+local COLLAPSED_W = math.min(PANEL_W, math.max(150, math.ceil(textWidth) + 84))
+MinimizeButton.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    local current = MainFrame.AbsolutePosition
+    MainFrame.Size = UDim2.fromOffset(minimized and COLLAPSED_W or PANEL_W, minimized and 32 or PANEL_H)
+    MainFrame.Position = UDim2.fromOffset(current.X, current.Y)
+    TitleBar.Size = UDim2.new(1, 0, 0, 32)
+    MinimizeButton.Text = minimized and "+" or "−"
+    for _, gui in ipairs({StatusLabel, TabsBar, PageHost}) do
+        gui.Visible = not minimized
+    end
+end)
+
+-- Dragging only by the header avoids accidental movement during menu scrolling.
+local dragStart, frameStart, dragInput = nil, nil, nil
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+        dragStart = Vector2.new(input.Position.X, input.Position.Y)
+        frameStart = MainFrame.AbsolutePosition
+    end
+end)
+TitleBar.InputEnded:Connect(function(input)
+    if dragInput == input then dragInput = nil end
+end)
+local moveConnection = UserInputService.InputChanged:Connect(function(input)
+    if not dragInput or not dragStart or not frameStart then return end
+    if input ~= dragInput and input.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+    local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+    local cam = workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(900, 600)
+    local size = MainFrame.AbsoluteSize
+    local x = math.clamp(frameStart.X + delta.X, 1, math.max(1, vp.X-size.X-1))
+    local y = math.clamp(frameStart.Y + delta.Y, 1, math.max(1, vp.Y-size.Y-1))
+    MainFrame.Position = UDim2.fromOffset(math.floor(x), math.floor(y))
+end)
+
+
+Refs.AutoStatus = AutoStatus
+Refs.AutoStartButton = AutoStartButton
+Refs.AutoStopButton = AutoStopButton
+Refs.AutoCastToggle = AutoCastToggle
+Refs.SkillCD1Input = SkillCD1Input
+Refs.SkillCD2Input = SkillCD2Input
+Refs.OptimizationToggle = OptimizationToggle
+Refs.HKGButton = HKGButton
+Refs.HKGStatus = HKGStatus
+Refs.moveConnection = moveConnection
+end
 
 -- Touch-friendly circular target lock beneath the standard Roblox top-left UI.
 local AimHud = Instance.new("TextButton")
@@ -556,7 +746,7 @@ local RandomCycle = {
     enabled = false, token = 0, phase = "off", target = nil,
     previousId = nil, readyAt = {[1] = 0, [2] = 0},
     firstCastAttemptAt = nil, secondCastAttemptAt = nil,
-    savedOrigin = nil, cooldownNotice = ""
+    cooldownNotice = ""
 }
 local SelectedTarget = nil
 local PlayerButtons = {}
@@ -576,7 +766,7 @@ local SafeTriggered = false
 local InvisHardConnection = nil
 local HiddenFolder = nil
 local DescendantConnection = nil
-local Evading = false -- compatibility guard only; never set true in v15
+local Evading = false -- compatibility guard only; never set true in v16
 local OriginalWalkSpeed = nil
 local SpeedHumanoid = nil
 local CurrentSpeedWritten = nil
@@ -588,7 +778,7 @@ local TrashToken = 0
 local TrashPhase = "idle"
 local AimTarget = nil
 local AimHighlight = nil
-local AimRenderName = "GringoXP_AimV15"
+local AimRenderName = "Nebula_AimV16"
 local TrashIndex = {}
 local TrashBlacklist = {}
 local TrashIndexReady = false
@@ -599,7 +789,7 @@ local ManualTeleportAt = -1e9
 local LastPositionTick = 0
 local LastRealSpeed = 0
 local FollowLastCorrection = -1e9
-local MoveRenderName = "GringoXP_MoveV15"
+local MoveRenderName = "Nebula_MoveV16"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -743,7 +933,7 @@ local function forceHideCharacter(char)
 
     if not HiddenFolder or not HiddenFolder.Parent then
         HiddenFolder = Instance.new("Folder")
-        HiddenFolder.Name = "HizolonHiddenVisuals"
+        HiddenFolder.Name = "NebulaHiddenVisuals"
         HiddenFolder.Parent = CoreGui
     end
 
@@ -888,7 +1078,7 @@ local function createSafeZone(mode)
     local destination = Vector3.new(hrp.Position.X, y, hrp.Position.Z)
 
     local platform = Instance.new("Part")
-    platform.Name = "HizolonLocalSafeZone"
+    platform.Name = "NebulaLocalSafeZone"
     platform.Size = Vector3.new(28, 2, 28)
     platform.Anchored = true
     platform.CanCollide = true
@@ -1076,7 +1266,7 @@ RunService:BindToRenderStep(MoveRenderName, Enum.RenderPriority.Input.Value + 2,
 end)
 
 -- ============================================================
--- AUTO EVADE removed in v15. No animation, effect, or damage listeners trigger TP.
+-- AUTO EVADE removed in v16. No animation, effect, or damage listeners trigger TP.
 -- Manual SAFE ZONA (default OFF) remains a separate user-controlled feature.
 
 local function monitorHealth(character)
@@ -1284,7 +1474,7 @@ local function RefreshPlayerList()
     for _, player in ipairs(PlayerList) do
         if player ~= Player then
             local PlayerEntry = Instance.new("Frame")
-            PlayerEntry.Size = UDim2.new(1, -7, 0, 21)
+            PlayerEntry.Size = UDim2.new(1, -7, 0, 32)
             PlayerEntry.Position = UDim2.new(0, 4, 0, yPosition)
             PlayerEntry.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
             PlayerEntry.BorderSizePixel = 0
@@ -1295,8 +1485,8 @@ local function RefreshPlayerList()
             EntryCorner.Parent = PlayerEntry
 
             local Checkbox = Instance.new("TextButton")
-            Checkbox.Size = UDim2.new(0, 17, 0, 17)
-            Checkbox.Position = UDim2.new(0, 2, 0.5, -8)
+            Checkbox.Size = UDim2.fromOffset(23, 23)
+            Checkbox.Position = UDim2.new(0, 4, 0.5, -11)
             Checkbox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
             Checkbox.BorderSizePixel = 0
             Checkbox.Text = ""
@@ -1320,11 +1510,11 @@ local function RefreshPlayerList()
             -- Both labels truncate instead of overflowing on small screens.
             local NameLabel = Instance.new("TextLabel")
             NameLabel.Size = UDim2.new(0.48, -11, 1, 0)
-            NameLabel.Position = UDim2.new(0, 24, 0, 0)
+            NameLabel.Position = UDim2.new(0, 34, 0, 0)
             NameLabel.BackgroundTransparency = 1
             NameLabel.Text = tostring(player.DisplayName)
             NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            NameLabel.TextSize = 11
+            NameLabel.TextSize = 12
             NameLabel.Font = Enum.Font.SourceSansBold
             NameLabel.TextXAlignment = Enum.TextXAlignment.Left
             NameLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -1333,7 +1523,7 @@ local function RefreshPlayerList()
             local UsernameLabel = Instance.new("TextLabel")
             UsernameLabel.Name = "Username"
             UsernameLabel.Size = UDim2.new(0.52, -29, 1, 0)
-            UsernameLabel.Position = UDim2.new(0.48, 12, 0, 0)
+            UsernameLabel.Position = UDim2.new(0.48, 17, 0, 0)
             UsernameLabel.BackgroundTransparency = 1
             UsernameLabel.Text = "@" .. tostring(player.Name)
             UsernameLabel.TextColor3 = Color3.fromRGB(160, 204, 222)
@@ -1345,8 +1535,8 @@ local function RefreshPlayerList()
 
             local Avatar = Instance.new("ImageLabel")
             Avatar.Name = "PlayerAvatar"
-            Avatar.Size = UDim2.fromOffset(18, 18)
-            Avatar.Position = UDim2.new(1, -21, 0.5, -9)
+            Avatar.Size = UDim2.fromOffset(23, 23)
+            Avatar.Position = UDim2.new(1, -26, 0.5, -12)
             Avatar.BackgroundColor3 = Color3.fromRGB(28, 44, 60)
             Avatar.BorderSizePixel = 0
             Avatar.ScaleType = Enum.ScaleType.Crop
@@ -1397,7 +1587,7 @@ local function RefreshPlayerList()
                 Entry = PlayerEntry,
                 Checkmark = Checkmark
             }
-            yPosition = yPosition + 25
+            yPosition = yPosition + 36
         end
     end
     PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yPosition + 4)
@@ -1814,7 +2004,7 @@ local function acquireAimTarget()
     local char = best.Character
     if char then
         local outline = Instance.new("Highlight")
-        outline.Name = "ShadowV15AimOutline"
+        outline.Name = "NebulaV16AimOutline"
         outline.Adornee = char
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -1844,7 +2034,7 @@ local function updateAim()
         clearAimTarget()
         AimTarget = saved
         local outline = Instance.new("Highlight")
-        outline.Name = "ShadowV15AimOutline"
+        outline.Name = "NebulaV16AimOutline"
         outline.Adornee = saved.Character
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -1932,7 +2122,7 @@ local function StartBackstab()
     end
 
     UpdateStatus()
-    Message("GRINGO XP SHADOW TSB", "Backstabbing " .. SelectedTarget.Name, 2)
+    Message("NEBULA TSB", "Backstabbing " .. SelectedTarget.Name, 2)
 
     if CONFIG.SAFE_ZONE and SafeTriggered then
         removeSafeZone(false)
@@ -1976,19 +2166,19 @@ StopBackstab = function()
     end
     PreviousAutoRotate = nil
     UpdateStatus()
-    Message("GRINGO XP SHADOW TSB", "Backstab stopped", 2)
+    Message("NEBULA TSB", "Backstab stopped", 2)
 end
 
 -- ============================================================
 -- ============================================================
--- RANDOM GAROU CYCLE v15: targeting -> skill 1 -> skill 2 ->
--- safe waiting point near map center Dummy -> cooldown -> repeat.
+-- RANDOM GAROU CYCLE v16: use any available skill, wait in place ONLY
+-- when both skills are on estimated cooldown. No automatic safe-area teleport.
 -- Only ordinary local skill input is attempted (no invented server remotes).
 -- Server may reject teleports and skill activation; cooldowns are estimates.
 -- ============================================================
 local function setRandomStatus(message)
-    if not Active or not AutoStatus.Parent then return end
-    AutoStatus.Text = "RANDOM CYCLE: " .. tostring(message)
+    if not Active or not Refs.AutoStatus.Parent then return end
+    Refs.AutoStatus.Text = "ЦИКЛ: " .. tostring(message)
 end
 
 local function cycleValid(token)
@@ -2016,90 +2206,6 @@ local function chooseCycleTarget()
     local pool = (#fresh > 0) and fresh or all
     if #pool == 0 then return nil end
     return pool[math.random(1, #pool)]
-end
-
-local function flatDistance(a, b)
-    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
-end
-
--- Find the central Dummy dynamically. No hardcoded coordinates, since the
--- arena can change. The center is a *waiting point*, not invulnerability.
-local cachedDummy, cachedDummyAt = nil, -math.huge
-local function centralDummyPosition()
-    if os.clock() - cachedDummyAt < 12 then return cachedDummy end
-    local bestPosition, bestXZ = nil, math.huge
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("Model") and string.find(string.lower(obj.Name), "dummy", 1, true)
-            and not Players:GetPlayerFromCharacter(obj) then
-            local part = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
-            if not part then part = obj:FindFirstChildWhichIsA("BasePart") end
-            if part then
-                local p = part.Position
-                local d = math.sqrt(p.X * p.X + p.Z * p.Z)
-                if d < bestXZ then bestXZ, bestPosition = d, p end
-            end
-        end
-    end
-    cachedDummy, cachedDummyAt = bestPosition, os.clock()
-    return bestPosition
-end
-
-local function findGroundedRestPoint()
-    local char = Player.Character
-    local charRoot = getHRP(Player)
-    if not char or not charRoot then return nil end
-    local center = centralDummyPosition()
-    if not center then
-        -- Fallback is user's origin; never blindly teleport to 0,0,0.
-        local old = RandomCycle.savedOrigin
-        center = old and old.Position or charRoot.Position
-    end
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {char}
-    params.IgnoreWater = true
-
-    local best, bestScore = nil, -math.huge
-    -- Test several rings around dummy to avoid collision with it and enemies.
-    for _, radius in ipairs({25, 36, 48, 62}) do
-        for j = 0, 7 do
-            local angle = j * math.pi / 4
-            local x, z = center.X + radius * math.cos(angle), center.Z + radius * math.sin(angle)
-            local hit = workspace:Raycast(Vector3.new(x, center.Y + 85, z), Vector3.new(0, -190, 0), params)
-            if hit and hit.Normal.Y > 0.67 and hit.Instance.CanCollide then
-                local pos = Vector3.new(x, hit.Position.Y + 3.8, z)
-                local nearest = math.huge
-                for _, enemy in ipairs(Players:GetPlayers()) do
-                    if enemy ~= Player and isAlive(enemy) then
-                        local eRoot = getHRP(enemy)
-                        if eRoot then nearest = math.min(nearest, flatDistance(pos, eRoot.Position)) end
-                    end
-                end
-                local score = math.min(nearest, 100) - radius * 0.15
-                if nearest >= CONFIG.RANDOM_SAFE_MIN_ENEMY_DISTANCE and score > bestScore then
-                    best, bestScore = pos, score
-                end
-            end
-        end
-    end
-    return best
-end
-
-local function retreatToCenter()
-    local char = Player.Character
-    local root = getHRP(Player)
-    if not char or not root or not isAlive(Player) or root.Anchored then return false, "no character" end
-    local pos = findGroundedRestPoint()
-    if not pos then return false, "no safe ground found" end
-    local look = root.CFrame.LookVector
-    local forward = Vector3.new(look.X, 0, look.Z)
-    if forward.Magnitude < 0.1 then forward = Vector3.new(0, 0, -1) end
-    local ok = pcall(function()
-        char:PivotTo(CFrame.lookAt(pos, pos + forward.Unit))
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-    end)
-    return ok, ok and "attempted" or "local TP failed"
 end
 
 -- Skill buttons in live TSB are controlled by the game; simulated key events
@@ -2193,8 +2299,8 @@ StopRandomCycle = function(updateStatus)
     end
     RandomCycle.phase = "off"
     RandomCycle.target = nil
-    AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
-    AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
+    Refs.AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+    Refs.AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
     if updateStatus ~= false then setRandomStatus("STOPPED") end
 end
 
@@ -2219,104 +2325,91 @@ StartRandomCycle = function()
         paintToggle(SafeToggle, "SAVE ZONA", false)
     end
 
-    RandomCycle.savedOrigin = getHRP(Player).CFrame
+    -- Cooldown estimates are intentionally preserved if STOP/START is pressed.
+    -- Never teleport just because both skills are cooling down.
     RandomCycle.enabled = true
     RandomCycle.token = RandomCycle.token + 1
     local token = RandomCycle.token
     RandomCycle.previousId = nil
-    RandomCycle.readyAt = {[1] = 0, [2] = 0}
     RandomCycle.phase = "starting"
-    AutoStartButton.BackgroundColor3 = Color3.fromRGB(12, 96, 73)
-    AutoStopButton.BackgroundColor3 = Color3.fromRGB(190, 39, 48)
-    setRandomStatus("STARTING | 1 → 2 → central Dummy")
+    Refs.AutoStartButton.BackgroundColor3 = Color3.fromRGB(12, 96, 73)
+    Refs.AutoStopButton.BackgroundColor3 = Color3.fromRGB(190, 39, 48)
+    setRandomStatus("STARTED • checks skills 1 and 2")
 
     task.spawn(function()
         while cycleValid(token) do
             if not isAlive(Player) or not getHRP(Player) then
-                setRandomStatus("respawn needed; stopped")
+                setRandomStatus("character unavailable • stopped")
                 StopRandomCycle(false)
                 break
             end
-            local nextReady = math.max(RandomCycle.readyAt[1], RandomCycle.readyAt[2])
-            local seconds = math.max(0, nextReady - os.clock())
-            if seconds > 0 then
+            local now = os.clock()
+            local ready1 = now >= RandomCycle.readyAt[1]
+            local ready2 = now >= RandomCycle.readyAt[2]
+            if not ready1 and not ready2 then
+                -- Both slots cooling: stay exactly where the player is.
+                -- Do not retreat, return to dummy, or teleport to another player.
                 RandomCycle.phase = "cooldown"
-                setRandomStatus("CD 1+2: " .. math.ceil(seconds) .. "s | waiting by Dummy")
-                if not cycleWait(token, math.min(seconds, 0.75)) then break end
+                local remaining = math.max(0, math.min(RandomCycle.readyAt[1], RandomCycle.readyAt[2]) - now)
+                setRandomStatus("Both CD • standing still • next in " .. math.ceil(remaining) .. "s")
+                if not cycleWait(token, math.min(remaining, 0.45)) then break end
             else
+                local slot = ready1 and 1 or 2
                 local opponent = chooseCycleTarget()
                 if not opponent then
                     RandomCycle.phase = "no target"
-                    setRandomStatus("No live players; waiting")
-                    if not cycleWait(token, 1.0) then break end
+                    setRandomStatus("No live opponents; staying still")
+                    if not cycleWait(token, 0.75) then break end
                 else
                     RandomCycle.phase = "target"
                     RandomCycle.target = opponent
-                    RandomCycle.previousId = opponent.UserId
-                    setRandomStatus("TP → @" .. opponent.Name)
+                    setRandomStatus("Target @" .. opponent.Name .. " • skill " .. slot)
                     local moved = teleportToOpponent(opponent, CONFIG.RANDOM_TARGET_RANGE)
                     if not moved then
-                        setRandomStatus("TP attempt unavailable; next target")
+                        setRandomStatus("TP blocked; retrying")
                         if not cycleWait(token, 0.55) then break end
                     else
-                        if not cycleWait(token, 0.18) then break end
-                        if not isAlive(opponent) then
-                            setRandomStatus("Target unavailable; next")
-                        else
-                            RandomCycle.phase = "skill 1"
-                            local a = CONFIG.RANDOM_AUTOUSE and attemptSkill(1)
+                        -- Input only after arrival; no assumed server-side acceptance.
+                        if not cycleWait(token, 0.14) then break end
+                        if isAlive(opponent) and isAlive(Player) then
+                            local casted = not CONFIG.RANDOM_AUTOUSE or attemptSkill(slot)
                             if not cycleValid(token) then break end
-                            if CONFIG.RANDOM_AUTOUSE and not a then
-                                setRandomStatus("Skill 1 input unavailable on Delta; STOP")
+                            if CONFIG.RANDOM_AUTOUSE and not casted then
+                                setRandomStatus("Skill input unavailable on Delta; STOPPED")
                                 StopRandomCycle(false)
                                 break
                             end
-                            RandomCycle.readyAt[1] = os.clock() + CONFIG.RANDOM_CD1
-                            setRandomStatus(CONFIG.RANDOM_AUTOUSE and "Skill 1 sent; waiting for 2" or "Use skill 1 manually")
-                            if not cycleWait(token, CONFIG.RANDOM_GAP_1_TO_2) then break end
-                            RandomCycle.phase = "skill 2"
-                            -- Skill 1 may have moved both fighters; re-aim before skill 2.
-                            if not isAlive(Player) then break end
-                            if isAlive(opponent) then
-                                teleportToOpponent(opponent, CONFIG.RANDOM_TARGET_RANGE)
-                            end
-                            local b = CONFIG.RANDOM_AUTOUSE and attemptSkill(2)
-                            if not cycleValid(token) then break end
-                            if CONFIG.RANDOM_AUTOUSE and not b then
-                                setRandomStatus("Skill 2 input unavailable on Delta; STOP")
-                                StopRandomCycle(false)
-                                break
-                            end
-                            RandomCycle.readyAt[2] = os.clock() + CONFIG.RANDOM_CD2
-                            setRandomStatus(CONFIG.RANDOM_AUTOUSE and "Skill 2 sent → retreat" or "Use skill 2 manually")
-                            if not cycleWait(token, CONFIG.RANDOM_POST_2) then break end
-                            RandomCycle.phase = "retreat"
-                            local safeOK, reason = retreatToCenter()
-                            setRandomStatus(safeOK and "TP to Dummy area attempted; cooldown" or
-                                ("Retreat unavailable: " .. reason))
-                            if not cycleWait(token, 0.3) then break end
+                            local period = slot == 1 and CONFIG.RANDOM_CD1 or CONFIG.RANDOM_CD2
+                            RandomCycle.readyAt[slot] = os.clock() + period
+                            RandomCycle.previousId = opponent.UserId
+                            setRandomStatus("Skill " .. slot .. (CONFIG.RANDOM_AUTOUSE and " attempted" or " manual") .. " • CD ~" .. period .. "s")
+                            -- When both slots were ready, use 1 then 2 after a short gap.
+                            -- If only one becomes available, use it immediately instead
+                            -- of waiting for the other to recharge.
+                            local gap = (slot == 1 and ready2) and CONFIG.RANDOM_GAP_1_TO_2 or 0.30
+                            if not cycleWait(token, gap) then break end
                         end
                     end
                 end
             end
         end
         if Active and not RandomCycle.enabled then
-            AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+            Refs.AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
         end
     end)
 end
 
-AutoStartButton.MouseButton1Click:Connect(StartRandomCycle)
-AutoStopButton.MouseButton1Click:Connect(function() StopRandomCycle(true) end)
-AutoCastToggle.MouseButton1Click:Connect(function()
+Refs.AutoStartButton.MouseButton1Click:Connect(StartRandomCycle)
+Refs.AutoStopButton.MouseButton1Click:Connect(function() StopRandomCycle(true) end)
+Refs.AutoCastToggle.MouseButton1Click:Connect(function()
     CONFIG.RANDOM_AUTOUSE = not CONFIG.RANDOM_AUTOUSE
-    paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
+    paintToggle(Refs.AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
     if not RandomCycle.enabled then
         setRandomStatus(CONFIG.RANDOM_AUTOUSE and "automatic skill input ON" or
             "manual skills mode (uses approximate timers)")
     end
 end)
-for slot, input in ipairs({SkillCD1Input, SkillCD2Input}) do
+for slot, input in ipairs({Refs.SkillCD1Input, Refs.SkillCD2Input}) do
     input.FocusLost:Connect(function()
         local value = tonumber(input.Text)
         if value and value == value and value > 0 and value < 300 then
@@ -2326,6 +2419,64 @@ for slot, input in ipairs({SkillCD1Input, SkillCD2Input}) do
         input.Text = tostring(slot == 1 and CONFIG.RANDOM_CD1 or CONFIG.RANDOM_CD2)
     end)
 end
+
+-- ------------------------------------------------------------
+-- One-click extras (remote loader is explicitly user-requested).
+-- ------------------------------------------------------------
+local function paintOptimizeButton()
+    Refs.OptimizationToggle.Text = Visual.state.wanted and "⚡ FPS OPTIMIZE: ON" or "⚡ FPS OPTIMIZE: OFF"
+    Refs.OptimizationToggle.BackgroundColor3 = Visual.state.wanted
+        and Color3.fromRGB(18, 125, 90) or Color3.fromRGB(125, 48, 58)
+end
+Refs.OptimizationToggle.MouseButton1Click:Connect(function()
+    if Visual.state.wanted then
+        Visual.stop()
+    else
+        Visual.start()
+    end
+    paintOptimizeButton()
+end)
+
+local HKG_URL = "https://raw.githubusercontent.com/pusahursahur-gif/HKG-hub./refs/heads/Lua/HKG-void"
+local hkgStarted = false
+local hkgLoading = false
+Refs.HKGButton.MouseButton1Click:Connect(function()
+    if hkgLoading or hkgStarted then return end
+    if type(loadstring) ~= "function" then
+        Refs.HKGStatus.Text = "No loadstring support in this executor"
+        return
+    end
+    hkgLoading = true
+    Refs.HKGButton.Text = "ЗАГРУЗКА HKG VOID..."
+    Refs.HKGStatus.Text = "Loading external code; this code is not audited."
+    task.spawn(function()
+        local okSource, source = pcall(function()
+            return game:HttpGet(HKG_URL)
+        end)
+        if not Active then return end
+        if not okSource or type(source) ~= "string" or #source == 0 then
+            Refs.HKGStatus.Text = "Load failed: source is unavailable"
+            Refs.HKGButton.Text = "▶ ПОВТОРИТЬ HKG VOID"
+            hkgLoading = false
+            return
+        end
+        local okRun, err = pcall(function()
+            local compiled, why = loadstring(source)
+            if not compiled then error(why or "Lua compilation failed") end
+            compiled()
+        end)
+        if not Active then return end
+        if okRun then
+            hkgStarted = true
+            Refs.HKGButton.Text = "✓ HKG VOID: ЗАПУЩЕН"
+            Refs.HKGStatus.Text = "External script executed; its internal result is not verified."
+        else
+            Refs.HKGStatus.Text = "Error: " .. tostring(err):sub(1, 120)
+            Refs.HKGButton.Text = "▶ ПОВТОРИТЬ HKG VOID"
+        end
+        hkgLoading = false
+    end)
+end)
 
 -- BUTTON CONNECTIONS
 -- ============================================================
@@ -2459,6 +2610,8 @@ ResetToggle.MouseButton1Click:Connect(function()
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
+    Visual.stop()
+    if Refs.moveConnection then Refs.moveConnection:Disconnect(); Refs.moveConnection = nil end
     if StopRandomCycle then StopRandomCycle(false) end
     Active = false
     stopTrash()
@@ -2554,4 +2707,6 @@ end
 -- ============================================================
 RefreshPlayerList()
 UpdateStatus()
-Message("GRINGO XP SHADOW TSB", "v15: instant TP + Garou 1/2 random cycle (no auto evade)", 4)
+Visual.start()
+paintOptimizeButton()
+Message("NEBULA TSB", "v16: compact tabs, automatic FPS optimize, cooldown-aware cycle", 4)
