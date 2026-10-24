@@ -1,4 +1,4 @@
--- NEBULA TSB v17 FIXED | Client-side Lua / Delta
+-- NEBULA TSB v18 FIXED | Client-side Lua / Delta
 -- Compact tabs, manual targeting, cooldown-aware random cycle, optional HKG Void.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- Automatic graphics optimization is reversible and only adjusts visual settings.
@@ -23,12 +23,14 @@ local Camera = workspace.CurrentCamera
 -- CONFIG
 -- ============================================================
 local CONFIG = {
-    BEHIND_STUDS = 5,
-    POSITION_UPDATE_INTERVAL = 0.045, -- 22 Hz follow; selection teleport is immediate
-    FOLLOW_CORRECTION_COOLDOWN = 0.22, -- reduce camera jitter from repeat pivots
-    FOLLOW_HARD_SNAP_DISTANCE = 12, -- large errors corrected without easing
-    FOLLOW_MANUAL_LEASH = 16, -- preserve WASD until target has moved far away
-    POSITION_TOLERANCE = 3.0, -- ignore small movements instead of jittering
+    BEHIND_STUDS = 4,
+    POSITION_UPDATE_INTERVAL = 0.032, -- immediate first TP, ~30 checks/s follow
+    FOLLOW_CORRECTION_COOLDOWN = 0.065, -- avoid unstable micro-pivots
+    FOLLOW_HARD_SNAP_DISTANCE = 7,
+    FOLLOW_MANUAL_LEASH = 4, -- manual movement near target remains usable
+    POSITION_TOLERANCE = 1.35,
+    VISUAL_RADIUS = 160, -- cosmetic local distance only, NOT real streaming
+    VISUAL_DISTANCE_ENABLED = true,
 
     HEIGHT_OFFSET = 0,
 
@@ -39,10 +41,10 @@ local CONFIG = {
     SAFE_DEPTH = 80,
     SAFE_HEIGHT = 130,
 
-    PING_COMPENSATE = true,
+    PING_COMPENSATE = false, -- no long-range projection: target root can ragdoll / get flung
     PREDICTION_MULT = 1.0,
     PING_SAFETY = 1.3,
-    MAX_LEAD_TIME = 0.07,
+    MAX_LEAD_TIME = 0.03,
     SMOOTH_FACTOR = 1.0, -- instant target updates (no lerp)
 
     SPEED_ENABLED = false,
@@ -73,50 +75,166 @@ local CONFIG = {
 }
 
 -- ============================================================
--- LOW-OVERHEAD REVERSIBLE CLIENT VISUAL SETTINGS
--- Never scans every part of the live game world or writes each Heartbeat.
+-- REVERSIBLE GRAPHICS + CONSERVATIVE COSMETIC DISTANCE CULLING
+-- Roblox streaming is controlled by the experience/server: this does
+-- NOT unload map geometry, physics, players or networked assets.
+-- Only static non-collidable decoration can be locally hidden far away.
 -- ============================================================
 local Visual = {}
 do
     local Lighting = game:GetService("Lighting")
-    local state = {wanted=false, active=false, originals=setmetatable({}, {__mode="k"}), conn=nil}
-    local function remember(obj, prop, value)
-        local ok, original = pcall(function() return obj[prop] end)
-        if not ok or original == value then return end
-        local p = state.originals[obj]
-        if not p then p = {}; state.originals[obj] = p end
-        if p[prop] == nil then p[prop] = original end
-        pcall(function() obj[prop] = value end)
+    local state = {
+        wanted=false, active=false, conn=nil, addedConn=nil,
+        originals=setmetatable({}, {__mode="k"}),
+        savedVisuals=setmetatable({}, {__mode="k"}),
+        candidates={}, seen=setmetatable({}, {__mode="k"}),
+        radius=CONFIG.VISUAL_RADIUS, distanceEnabled=CONFIG.VISUAL_DISTANCE_ENABLED,
+        generation=0
+    }
+    local function remember(obj, property, target)
+        local ok, old = pcall(function() return obj[property] end)
+        if not ok or old == target then return end
+        local original = state.originals[obj]
+        if not original then original = {}; state.originals[obj] = original end
+        if original[property] == nil then original[property] = old end
+        pcall(function() obj[property] = target end)
     end
     local function optimizeEffect(obj)
         if obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
-            or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+           or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
             remember(obj, "Enabled", false)
         end
+    end
+    local function isCosmeticPart(part)
+        if not part:IsA("BasePart") or not part.Anchored
+            or part.CanCollide or part.CanTouch or part.Transparency >= 0.95 then return false end
+        local current = part
+        while current and current ~= workspace do
+            if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then return false end
+            local lower = current.Name:lower()
+            if lower:find("combat",1,true) or lower:find("hitbox",1,true)
+                or lower:find("projectile",1,true) or lower:find("effect",1,true)
+                or lower:find("attack",1,true) or lower:find("weapon",1,true)
+                or lower:find("dummy",1,true) or lower:find("npc",1,true)
+                or lower:find("trash",1,true) then return false end
+            current = current.Parent
+        end
+        return true
+    end
+    local function addCandidate(part)
+        if #state.candidates >= 850 or state.seen[part] or not isCosmeticPart(part) then return end
+        state.seen[part] = true
+        table.insert(state.candidates, part)
+    end
+    local function restoreVisuals()
+        for part, original in pairs(state.savedVisuals) do
+            pcall(function()
+                if part.Parent and part.LocalTransparencyModifier == 1 then
+                    part.LocalTransparencyModifier = original
+                end
+            end)
+        end
+        state.savedVisuals = setmetatable({}, {__mode="k"})
+    end
+    local function updateDistances()
+        if not state.distanceEnabled then
+            restoreVisuals()
+            return
+        end
+        local char = Player.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        local origin = root.Position
+        local farSq = (state.radius + 16) ^ 2
+        local nearSq = (state.radius - 10) ^ 2
+        for _, part in ipairs(state.candidates) do
+            if part.Parent and isCosmeticPart(part) then
+                local p = part.Position
+                local squared = (p.X-origin.X)^2 + (p.Y-origin.Y)^2 + (p.Z-origin.Z)^2
+                if squared > farSq then
+                    if state.savedVisuals[part] == nil then
+                        local ok, prev = pcall(function() return part.LocalTransparencyModifier end)
+                        if ok and prev < 1 then state.savedVisuals[part] = prev end
+                    end
+                    if state.savedVisuals[part] ~= nil then
+                        pcall(function() part.LocalTransparencyModifier = 1 end)
+                    end
+                elseif squared < nearSq and state.savedVisuals[part] ~= nil then
+                    local old = state.savedVisuals[part]
+                    pcall(function() if part.LocalTransparencyModifier == 1 then part.LocalTransparencyModifier = old end end)
+                    state.savedVisuals[part] = nil
+                end
+            elseif state.savedVisuals[part] ~= nil then
+                local old = state.savedVisuals[part]
+                pcall(function() if part.LocalTransparencyModifier == 1 then part.LocalTransparencyModifier = old end end)
+                state.savedVisuals[part] = nil
+            end
+        end
+    end
+    local function scanGradually(token)
+        -- Traverse incrementally; no full-map GetDescendants() allocation.
+        local queue = workspace:GetChildren()
+        local index, scanned = 1, 0
+        while state.active and state.generation == token and index <= #queue
+            and #state.candidates < 850 and scanned < 16000 do
+            local obj = queue[index]
+            index = index + 1
+            scanned = scanned + 1
+            if obj and obj.Parent then
+                if obj:IsA("BasePart") then addCandidate(obj) end
+                if obj ~= workspace.Terrain and obj ~= workspace.CurrentCamera then
+                    for _, child in ipairs(obj:GetChildren()) do
+                        queue[#queue + 1] = child
+                    end
+                end
+            end
+            if scanned % 160 == 0 then task.wait() end
+        end
+    end
+    Visual.setRadius = function(value)
+        state.radius = math.clamp(math.floor(value + 0.5), 80, 300)
+    end
+    Visual.setDistanceEnabled = function(enabled)
+        state.distanceEnabled = enabled and true or false
+        if not state.distanceEnabled then restoreVisuals() end
     end
     Visual.start = function()
         state.wanted = true
         if state.active then return end
         state.active = true
+        state.generation = state.generation + 1
+        local token = state.generation
         remember(Lighting, "GlobalShadows", false)
-        for _, obj in ipairs(Lighting:GetDescendants()) do
-            optimizeEffect(obj)
-        end
+        for _, obj in ipairs(Lighting:GetDescendants()) do optimizeEffect(obj) end
         state.conn = Lighting.DescendantAdded:Connect(function(obj)
             if state.active then optimizeEffect(obj) end
+        end)
+        state.addedConn = workspace.DescendantAdded:Connect(function(obj)
+            if state.active and state.distanceEnabled and obj:IsA("BasePart") then addCandidate(obj) end
+        end)
+        task.spawn(function() scanGradually(token) end)
+        task.spawn(function()
+            while state.active and state.generation == token do
+                pcall(updateDistances)
+                task.wait(2.4) -- never walks all candidates per frame
+            end
         end)
     end
     Visual.stop = function()
         state.wanted = false
-        if not state.active then return end
         state.active = false
+        state.generation = state.generation + 1
         if state.conn then state.conn:Disconnect(); state.conn=nil end
+        if state.addedConn then state.addedConn:Disconnect(); state.addedConn=nil end
+        restoreVisuals()
         for obj, props in pairs(state.originals) do
-            for prop, previous in pairs(props) do
-                pcall(function() obj[prop] = previous end)
+            for property, previous in pairs(props) do
+                pcall(function() obj[property] = previous end)
             end
         end
         state.originals = setmetatable({}, {__mode="k"})
+        state.candidates = {}
+        state.seen = setmetatable({}, {__mode="k"})
     end
     Visual.state = state
 end
@@ -143,7 +261,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17") then
+            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17" or gui.Name == "NebulaTSBv18") then
                 gui:Destroy()
             end
         end
@@ -151,7 +269,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NebulaTSBv17"
+ScreenGui.Name = "NebulaTSBv18"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -197,7 +315,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "NEBULA TSB · v17"
+Title.Text = "NEBULA TSB · v18"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
@@ -288,23 +406,6 @@ local function emergencyClose()
     end
 end
 CloseButton.Activated:Connect(emergencyClose)
-
--- Emergency exit lives OUTSIDE the main panel and survives broken page layouts.
-local EmergencyButton = Instance.new("TextButton")
-EmergencyButton.Name = "EmergencyExit"
-EmergencyButton.Size = UDim2.fromOffset(28, 28)
-EmergencyButton.Position = UDim2.new(1, -34, 0, 77)
-EmergencyButton.BackgroundColor3 = Color3.fromRGB(112, 38, 50)
-EmergencyButton.BackgroundTransparency = 0.25
-EmergencyButton.BorderSizePixel = 0
-EmergencyButton.Text = "×"
-EmergencyButton.TextColor3 = Color3.new(1, 1, 1)
-EmergencyButton.Font = Enum.Font.SourceSansBold
-EmergencyButton.TextSize = 21
-EmergencyButton.ZIndex = 50
-EmergencyButton.Parent = ScreenGui
-Instance.new("UICorner", EmergencyButton).CornerRadius = UDim.new(0, 7)
-EmergencyButton.Activated:Connect(emergencyClose)
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Position = UDim2.new(0, 7, 0, 28)
@@ -539,7 +640,7 @@ do
 -- NEBULA v16 | Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "NEBULA TSB · v17"
+Title.Text = "NEBULA TSB · v18"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -636,7 +737,7 @@ relayout(StartButton, TargetPage, 8, targetListHeight + 16, halfW, 33)
 relayout(StopButton, TargetPage, rightX, targetListHeight + 16, rightW, 33)
 relayout(TpOnceButton, TargetPage, 8, targetListHeight + 55, halfW, 32)
 relayout(RandomTPButton, TargetPage, rightX, targetListHeight + 55, rightW, 32)
-infoLabel(TargetPage, "Нажми игрока — попытка TP сразу. START включает слежение за выбранной целью.", targetListHeight + 93, 38)
+infoLabel(TargetPage, "Тап по игроку: TP без паузы. START: сопровождать, поворачивая тело, но не камеру.", targetListHeight + 93, 38)
 
 -- Dedicated auto-cycle page: START/STOP and cooldowns always visible.
 local CyclePage = pages[2]
@@ -711,17 +812,51 @@ TrashInfo.Position = UDim2.fromOffset(8, 346)
 TrashInfo.Size = UDim2.fromOffset(innerW, 64)
 TrashInfo.TextSize = 11
 
--- Extras page: render optimization on startup + user-requested external loader.
+-- Extras: independent scroll preserves compact panel dimensions.
 local ExtraPage = pages[4]
+local ExtraScroll = Instance.new("ScrollingFrame")
+ExtraScroll.Name = "ExtraScroll"
+ExtraScroll.BackgroundTransparency = 1
+ExtraScroll.BorderSizePixel = 0
+ExtraScroll.Size = UDim2.fromScale(1, 1)
+ExtraScroll.CanvasSize = UDim2.fromOffset(0, 462)
+ExtraScroll.ScrollBarThickness = 3
+ExtraScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+ExtraScroll.Parent = ExtraPage
+
 local OptimizationToggle = Instance.new("TextButton")
 OptimizationToggle.Name = "OptimizationToggle"
 OptimizationToggle.BorderSizePixel = 0
 OptimizationToggle.Font = Enum.Font.SourceSansBold
 OptimizationToggle.TextSize = 14
 OptimizationToggle.TextColor3 = Color3.new(1, 1, 1)
-relayout(OptimizationToggle, ExtraPage, 8, 9, innerW, 40)
+relayout(OptimizationToggle, ExtraScroll, 8, 9, innerW, 40)
 Instance.new("UICorner", OptimizationToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(ExtraPage, "Оптимизация запускается автоматически: меньше теней и тяжёлых эффектов освещения. Боевые эффекты не удаляются.", 57, 65)
+infoLabel(ExtraScroll, "Лёгкое освещение + скрытие только далёкого статичного декора. Объекты и игроки не удаляются.", 57, 64)
+
+local DistanceToggle = Instance.new("TextButton")
+DistanceToggle.Name = "DistanceEcoToggle"
+DistanceToggle.BorderSizePixel = 0
+DistanceToggle.Font = Enum.Font.SourceSansBold
+DistanceToggle.TextSize = 13
+DistanceToggle.TextColor3 = Color3.new(1,1,1)
+relayout(DistanceToggle, ExtraScroll, 8, 125, innerW, 36)
+Instance.new("UICorner", DistanceToggle).CornerRadius = UDim.new(0, 6)
+
+local RadiusLabel = infoLabel(ExtraScroll, "Радиус декора (80–300 studs):", 172, 33)
+RadiusLabel.Size = UDim2.fromOffset(halfW + 20, 34)
+local RadiusInput = Instance.new("TextBox")
+RadiusInput.Name = "CullingRadius"
+RadiusInput.Text = tostring(CONFIG.VISUAL_RADIUS)
+RadiusInput.PlaceholderText = "160"
+RadiusInput.ClearTextOnFocus = false
+RadiusInput.Font = Enum.Font.SourceSansBold
+RadiusInput.TextSize = 15
+RadiusInput.TextColor3 = Color3.fromRGB(245,249,255)
+RadiusInput.BackgroundColor3 = Color3.fromRGB(41,52,69)
+relayout(RadiusInput, ExtraScroll, rightX, 172, rightW, 34)
+Instance.new("UICorner", RadiusInput).CornerRadius = UDim.new(0, 6)
+infoLabel(ExtraScroll, "Важно: скрипт не может включить серверный StreamingEnabled. Коллизии, физика, NPC и боевые объекты остаются. Изменения графики обратимы.", 217, 79)
 
 local HKGButton = Instance.new("TextButton")
 HKGButton.Name = "ExternalHKGVoid"
@@ -731,11 +866,11 @@ HKGButton.TextColor3 = Color3.new(1, 1, 1)
 HKGButton.Font = Enum.Font.SourceSansBold
 HKGButton.TextSize = 15
 HKGButton.Text = "▶ ЗАПУСТИТЬ HKG VOID"
-relayout(HKGButton, ExtraPage, 8, 135, innerW, 43)
+relayout(HKGButton, ExtraScroll, 8, 311, innerW, 43)
 Instance.new("UICorner", HKGButton).CornerRadius = UDim.new(0, 7)
-local HKGStatus = infoLabel(ExtraPage, "Внешний Lua-код загружается только по нажатию. Его безопасность и совместимость не подтверждены.", 186, 78)
+local HKGStatus = infoLabel(ExtraScroll, "Внешний Lua-код запускается только по нажатию. Безопасность не подтверждена.", 364, 72)
 
--- Minimize/restore and emergency exit are connected before the feature pages.
+-- Minimize/restore and title-bar X are connected before feature pages.
 
 -- Dragging only by the header avoids accidental movement during menu scrolling.
 local dragStart, frameStart, dragInput = nil, nil, nil
@@ -769,6 +904,8 @@ Refs.AutoCastToggle = AutoCastToggle
 Refs.SkillCD1Input = SkillCD1Input
 Refs.SkillCD2Input = SkillCD2Input
 Refs.OptimizationToggle = OptimizationToggle
+Refs.DistanceToggle = DistanceToggle
+Refs.RadiusInput = RadiusInput
 Refs.HKGButton = HKGButton
 Refs.HKGStatus = HKGStatus
 Refs.moveConnection = moveConnection
@@ -835,7 +972,7 @@ local TrashToken = 0
 local TrashPhase = "idle"
 local AimTarget = nil
 local AimHighlight = nil
-local AimRenderName = "Nebula_AimV17"
+local AimRenderName = "Nebula_AimV18"
 local TrashIndex = {}
 local TrashBlacklist = {}
 local TrashIndexReady = false
@@ -846,7 +983,7 @@ local ManualTeleportAt = -1e9
 local LastPositionTick = 0
 local LastRealSpeed = 0
 local FollowLastCorrection = -1e9
-local MoveRenderName = "Nebula_MoveV17"
+local MoveRenderName = "Nebula_MoveV18"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1366,79 +1503,106 @@ end
 -- ============================================================
 local Positioner = {}
 
-function Positioner.getBehindCFrame(targetHRP)
-    if not targetHRP then return nil end
-
-    local targetCF = targetHRP.CFrame
-    local targetPos = targetHRP.Position
-    local targetLook = targetCF.LookVector
-
-    local pingRaw = getPing() / 1000
-    local leadTime = math.min(pingRaw * CONFIG.PING_SAFETY, CONFIG.MAX_LEAD_TIME)
-    local predictedPos = targetPos
-    local predictedLook = targetLook
-
-    if CONFIG.PING_COMPENSATE then
-        local vel = targetHRP.AssemblyLinearVelocity
-        local predMult = math.clamp(CONFIG.PREDICTION_MULT, 0.5, 1.5)
-        local flatVel = Vector3.new(vel.X, 0, vel.Z)
-        if flatVel.Magnitude > 55 then flatVel = flatVel.Unit * 55 end
-        predictedPos = targetPos + flatVel * leadTime * predMult
-
-        local angVel = targetHRP.AssemblyAngularVelocity
-        if angVel.Magnitude > 0.1 then
-            local angle = angVel.Magnitude * leadTime * predMult
-            angle = math.clamp(angle, -math.pi / 2, math.pi / 2)
-            local axis = angVel.Unit
-            local rotDelta = CFrame.fromAxisAngle(axis, angle)
-            predictedLook = (rotDelta * targetLook).Unit
-        end
-        -- Keep vertical placement stable on ragdolls; no double Y prediction.
+-- Read the currently replicated body location. During ragdoll the HRP can
+-- be far from the torso or rotate onto its side: avoid teleporting into void.
+local function validPoint(p)
+    return p and p.X == p.X and p.Y == p.Y and p.Z == p.Z
+        and math.abs(p.X) < 100000 and math.abs(p.Y) < 100000
+        and math.abs(p.Z) < 100000
+        and p.Y > workspace.FallenPartsDestroyHeight + 12
+end
+local function reliableTargetPose(targetRoot)
+    if not targetRoot or not targetRoot.Parent then return nil end
+    local char = targetRoot.Parent
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local torso = char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso")
+        or char:FindFirstChild("LowerTorso")
+    local rootPos = targetRoot.Position
+    local torsoPos = torso and torso.Position
+    local ragdolled = false
+    if hum then
+        local state = hum:GetState()
+        ragdolled = state == Enum.HumanoidStateType.Ragdoll
+            or state == Enum.HumanoidStateType.FallingDown
+            or state == Enum.HumanoidStateType.Physics
+            or state == Enum.HumanoidStateType.PlatformStanding
     end
-
-    local flatLook = Vector3.new(predictedLook.X, 0, predictedLook.Z)
-    if flatLook.Magnitude < 0.05 then flatLook = Vector3.new(0, 0, -1) end
-    local behindPos = predictedPos - flatLook.Unit * CONFIG.BEHIND_STUDS
-    behindPos = behindPos + Vector3.new(0, CONFIG.HEIGHT_OFFSET, 0)
-
-    local facePos = Vector3.new(predictedPos.X, behindPos.Y, predictedPos.Z)
-    if (facePos - behindPos).Magnitude < 0.01 then
-        return CFrame.new(behindPos)
+    local useTorso = torsoPos and validPoint(torsoPos)
+        and (not validPoint(rootPos) or (torsoPos-rootPos).Magnitude > 7 or ragdolled)
+    local pos = useTorso and torsoPos or rootPos
+    if not validPoint(pos) then return nil end
+    local look = targetRoot.CFrame.LookVector
+    local flat = Vector3.new(look.X, 0, look.Z)
+    if ragdolled or flat.Magnitude < 0.4 then
+        local own = getHRP(Player)
+        local away = own and (pos - own.Position) or Vector3.new(0, 0, -1)
+        flat = Vector3.new(away.X, 0, away.Z)
     end
-    return CFrame.lookAt(behindPos, facePos)
+    if flat.Magnitude < 0.05 then flat = Vector3.new(0, 0, -1) end
+    return pos, flat.Unit, ragdolled
 end
 
--- Only rotate the avatar, not CurrentCamera: abilities and mouse-look stay free.
+function Positioner.getBehindCFrame(targetHRP, distance)
+    local pos, flatLook, ragdolled = reliableTargetPose(targetHRP)
+    if not pos then return nil end
+    local studs = math.clamp(distance or CONFIG.BEHIND_STUDS, 3, 9)
+    local destination = pos - flatLook * studs
+    -- Keep predicted displacement off by default. When re-enabled, never
+    -- project over two studs, since client ragdoll velocities are unreliable.
+    if CONFIG.PING_COMPENSATE and not ragdolled then
+        local velocity = targetHRP.AssemblyLinearVelocity
+        local flatVel = Vector3.new(velocity.X, 0, velocity.Z)
+        local dt = math.min(getPing() / 1000, CONFIG.MAX_LEAD_TIME)
+        local lead = flatVel * dt
+        if lead.Magnitude > 2 then lead = lead.Unit * 2 end
+        destination = destination + lead
+        pos = pos + lead
+    end
+    local y = pos.Y + CONFIG.HEIGHT_OFFSET
+    -- Knocked-down characters can put root Y below the floor. Use local
+    -- ground height without touching collision or altering the map.
+    if ragdolled then
+        local params = RaycastParams.new()
+        params.FilterType = Enum.RaycastFilterType.Exclude
+        local exclude = {targetHRP.Parent}
+        if Player.Character then table.insert(exclude, Player.Character) end
+        params.FilterDescendantsInstances = exclude
+        local hit = workspace:Raycast(destination + Vector3.new(0, 6, 0), Vector3.new(0, -19, 0), params)
+        if hit then y = math.max(y, hit.Position.Y + 3.0) end
+    end
+    destination = Vector3.new(destination.X, y, destination.Z)
+    if not validPoint(destination) then return nil end
+    local face = Vector3.new(pos.X, y, pos.Z)
+    if (face-destination).Magnitude < 0.25 then return nil end
+    return CFrame.lookAt(destination, face)
+end
+
+-- Turn only the avatar. Never control camera CFrame (SHIFT or normal camera).
 function Positioner.faceTarget(targetRoot)
     local root, hum = getHRP(Player), speedHumanoid()
     if not root or not targetRoot or moveBlocked(hum) or root.Anchored then return end
-    local pos = root.Position
-    local at = Vector3.new(targetRoot.Position.X, pos.Y, targetRoot.Position.Z)
-    local delta = at - pos
-    if delta.Magnitude < 0.4 then return end
+    local aimPos = reliableTargetPose(targetRoot)
+    if not aimPos then return end
+    local at = Vector3.new(aimPos.X, root.Position.Y, aimPos.Z)
+    local delta = at - root.Position
+    if delta.Magnitude < 0.35 then return end
     local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
-    local dot = facing.Magnitude > 0.01 and facing.Unit:Dot(delta.Unit) or 0
-    if dot > 0.987 then return end  -- avoid tiny frame-to-frame rotation changes
-    pcall(function() root.CFrame = CFrame.lookAt(pos, at) end)
+    if facing.Magnitude > 0.01 and facing.Unit:Dot(delta.Unit) > 0.995 then return end
+    pcall(function() root.CFrame = CFrame.lookAt(root.Position, at) end)
 end
 
 function Positioner.teleport(force)
     if not Active or Evading or TrashBusy or ResetInProgress or SafeTriggered
         or not SelectedTarget or not isAlive(SelectedTarget) then return false end
-    local targetRoot = getHRP(SelectedTarget)
-    local root = getHRP(Player)
-    local char = Player.Character
+    local targetRoot, root, char = getHRP(SelectedTarget), getHRP(Player), Player.Character
     local hum = speedHumanoid()
     if not targetRoot or not root or not char or moveBlocked(hum) then return false end
-    local targetCFrame = Positioner.getBehindCFrame(targetRoot)
-    if not targetCFrame then return false end
-    local gap = (root.Position - targetCFrame.Position).Magnitude
-
+    local targetCF = Positioner.getBehindCFrame(targetRoot)
+    if not targetCF then return false end
+    local gap = (root.Position-targetCF.Position).Magnitude
     if not force then
-        -- Manual WASD/mobile movement gets priority over follow teleports.
-        -- This keeps attacking, movement and camera control usable together.
-        local input = intendedMove(hum)
-        if input.Magnitude > 0.09 and gap <= CONFIG.FOLLOW_MANUAL_LEASH then
+        local direction = intendedMove(hum)
+        if direction.Magnitude > 0.09 and gap <= CONFIG.FOLLOW_MANUAL_LEASH then
             Positioner.faceTarget(targetRoot)
             return true
         end
@@ -1446,20 +1610,17 @@ function Positioner.teleport(force)
             Positioner.faceTarget(targetRoot)
             return true
         end
-        if gap < CONFIG.FOLLOW_HARD_SNAP_DISTANCE and
-           os.clock() - FollowLastCorrection < CONFIG.FOLLOW_CORRECTION_COOLDOWN then
+        if gap < CONFIG.FOLLOW_HARD_SNAP_DISTANCE
+            and os.clock()-FollowLastCorrection < CONFIG.FOLLOW_CORRECTION_COOLDOWN then
             Positioner.faceTarget(targetRoot)
             return true
         end
     end
-
     local ok = pcall(function()
-        char:PivotTo(targetCFrame)
-        -- Never reset velocity every follow step: this causes shaky camera and
-        -- prevents ability movement / dashes. Only hard start may stop drift.
+        char:PivotTo(targetCF)
         if force then
-            local vel = root.AssemblyLinearVelocity
-            root.AssemblyLinearVelocity = Vector3.new(0, vel.Y, 0)
+            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyAngularVelocity = Vector3.zero
         end
     end)
     if ok then FollowLastCorrection = os.clock() end
@@ -1468,18 +1629,16 @@ end
 
 local function teleportToOpponent(opponent, distance)
     if not Active or TrashBusy or Evading or SafeTriggered or ResetInProgress then return false end
-    local char = Player.Character
-    local root = getHRP(Player)
-    local targetRoot = getHRP(opponent)
-    if not char or not root or not targetRoot or not isAlive(opponent) then return false end
-    local old = CONFIG.BEHIND_STUDS
-    CONFIG.BEHIND_STUDS = distance or old
-    local dst = Positioner.getBehindCFrame(targetRoot)
-    CONFIG.BEHIND_STUDS = old
+    local char, root, targetRoot = Player.Character, getHRP(Player), getHRP(opponent)
+    local hum = speedHumanoid()
+    if not char or not root or not targetRoot or not isAlive(opponent)
+        or moveBlocked(hum) then return false end
+    local dst = Positioner.getBehindCFrame(targetRoot, distance)
     if not dst then return false end
     return pcall(function()
         char:PivotTo(dst)
         root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
     end)
 end
 
@@ -1628,6 +1787,7 @@ local function RefreshPlayerList()
                     return
                 end
                 SelectedTarget = player
+                FollowLastCorrection = -1e9
                 for _, data in pairs(PlayerButtons) do
                     data.Checkmark.Visible = false
                 end
@@ -2061,7 +2221,7 @@ local function acquireAimTarget()
     local char = best.Character
     if char then
         local outline = Instance.new("Highlight")
-        outline.Name = "NebulaV17AimOutline"
+        outline.Name = "NebulaV18AimOutline"
         outline.Adornee = char
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -2077,42 +2237,20 @@ local function acquireAimTarget()
 end
 
 local function updateAim()
-    if not Active or not CONFIG.AIM_ENABLED then return end
-    if not AimTarget then return end
-    if not isAlive(AimTarget) then
+    if not Active then return end
+    -- Follow mode points the AVATAR towards its selected target even while
+    -- the camera is freely rotated / SHIFT Lock is active.
+    local player = nil
+    if BackstabActive and SelectedTarget and isAlive(SelectedTarget) then
+        player = SelectedTarget
+    elseif CONFIG.AIM_ENABLED and AimTarget and isAlive(AimTarget) then
+        player = AimTarget
+    elseif CONFIG.AIM_ENABLED and AimTarget then
         clearAimTarget()
-        return
     end
-    local cam = workspace.CurrentCamera
-    local targetRoot = getHRP(AimTarget)
-    if not cam or not targetRoot then return end
-    if not AimHighlight or AimHighlight.Adornee ~= AimTarget.Character then
-        local saved = AimTarget
-        clearAimTarget()
-        AimTarget = saved
-        local outline = Instance.new("Highlight")
-        outline.Name = "NebulaV17AimOutline"
-        outline.Adornee = saved.Character
-        outline.FillTransparency = 1
-        outline.OutlineTransparency = 0.06
-        outline.OutlineColor = Color3.fromRGB(108, 236, 255)
-        outline.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-        outline.Parent = cam
-        AimHighlight = outline
-    end
-    local char = AimTarget.Character
-    local head = char and char:FindFirstChild("Head")
-    local focus = (head and head:IsA("BasePart") and head.Position or targetRoot.Position)
-        + Vector3.new(0, head and 0.65 or CONFIG.AIM_TARGET_RISE, 0)
-    local origin = cam.CFrame.Position
-    -- Default Roblox camera writes at priority 200. We execute at 201,
-    -- so our optional vertical offset does not accumulate frame-to-frame.
-    if cam.CameraType ~= Enum.CameraType.Scriptable then
-        origin = origin + Vector3.new(0, CONFIG.AIM_CAMERA_RISE, 0)
-    end
-    if (focus - origin).Magnitude > 0.1 then
-        cam.CFrame = CFrame.lookAt(origin, focus) -- zero interpolation/lag
-    end
+    if not player then return end
+    local targetRoot = getHRP(player)
+    if targetRoot then Positioner.faceTarget(targetRoot) end
 end
 
 local function setAimEnabled(enabled)
@@ -2172,6 +2310,7 @@ local function StartBackstab()
         return
     end
     BackstabActive = true
+    if CONFIG.AIM_ENABLED then acquireAimTarget() end
     local myHum = Player.Character and Player.Character:FindFirstChildOfClass("Humanoid")
     if myHum then
         PreviousAutoRotate = myHum.AutoRotate
@@ -2223,7 +2362,7 @@ StopBackstab = function()
     end
     PreviousAutoRotate = nil
     UpdateStatus()
-    Message("NEBULA TSB", "Backstab stopped", 2)
+    Message("NEBULA TSB", "Following stopped", 2)
 end
 
 -- ============================================================
@@ -2493,6 +2632,26 @@ Refs.OptimizationToggle.Activated:Connect(function()
     end
     paintOptimizeButton()
 end)
+local function paintDistanceButton()
+    Refs.DistanceToggle.Text = Visual.state.distanceEnabled
+        and "◎ DISTANCE ECO: ON" or "◎ DISTANCE ECO: OFF"
+    Refs.DistanceToggle.BackgroundColor3 = Visual.state.distanceEnabled
+        and Color3.fromRGB(18, 125, 90) or Color3.fromRGB(125, 48, 58)
+end
+Refs.DistanceToggle.Activated:Connect(function()
+    Visual.setDistanceEnabled(not Visual.state.distanceEnabled)
+    CONFIG.VISUAL_DISTANCE_ENABLED = Visual.state.distanceEnabled
+    paintDistanceButton()
+end)
+Refs.RadiusInput.FocusLost:Connect(function()
+    local n = tonumber(Refs.RadiusInput.Text)
+    if n and n == n and n ~= math.huge and n ~= -math.huge then
+        Visual.setRadius(n)
+        CONFIG.VISUAL_RADIUS = Visual.state.radius
+    end
+    Refs.RadiusInput.Text = tostring(CONFIG.VISUAL_RADIUS)
+end)
+
 
 local HKG_URL = "https://raw.githubusercontent.com/pusahursahur-gif/HKG-hub./refs/heads/Lua/HKG-void"
 local hkgStarted = false
@@ -2666,7 +2825,7 @@ ResetToggle.Activated:Connect(function()
         or Color3.fromRGB(220, 225, 240)
 end)
 
--- One shutdown path for close X, emergency X and re-execution.
+-- One shutdown path for title-bar X and re-execution.
 Shutdown = function()
     if closing then return end
     closing = true
@@ -2773,4 +2932,5 @@ RefreshPlayerList()
 UpdateStatus()
 Visual.start()
 paintOptimizeButton()
-Message("NEBULA TSB", "v17: touch-friendly panel, stable minimize and cycle", 3)
+paintDistanceButton()
+Message("NEBULA TSB", "v18: precise TP, avatar AIM, reversible distance eco", 3)
