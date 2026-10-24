@@ -1,4 +1,4 @@
--- NEBULA TSB v16 | Client-side Lua / Delta
+-- NEBULA TSB v17 FIXED | Client-side Lua / Delta
 -- Compact tabs, manual targeting, cooldown-aware random cycle, optional HKG Void.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- Automatic graphics optimization is reversible and only adjusts visual settings.
@@ -73,134 +73,99 @@ local CONFIG = {
 }
 
 -- ============================================================
--- REVERSIBLE CLIENT VISUAL OPTIMIZATION (starts automatically)
+-- LOW-OVERHEAD REVERSIBLE CLIENT VISUAL SETTINGS
+-- Never scans every part of the live game world or writes each Heartbeat.
 -- ============================================================
 local Visual = {}
 do
-local Lighting = game:GetService("Lighting")
-local RenderOptimizer = {
-    active = false, wanted = false, restoring = false, queue = {}, index = 1, worker = nil,
-    originals = setmetatable({}, {__mode = "k"}), listeners = {},
-}
-local function rememberVisual(obj, property, newValue)
-    local ok, previous = pcall(function() return obj[property] end)
-    if not ok or previous == newValue then return end
-    local saved = RenderOptimizer.originals[obj]
-    if not saved then
-        saved = {}
-        RenderOptimizer.originals[obj] = saved
+    local Lighting = game:GetService("Lighting")
+    local state = {wanted=false, active=false, originals=setmetatable({}, {__mode="k"}), conn=nil}
+    local function remember(obj, prop, value)
+        local ok, original = pcall(function() return obj[prop] end)
+        if not ok or original == value then return end
+        local p = state.originals[obj]
+        if not p then p = {}; state.originals[obj] = p end
+        if p[prop] == nil then p[prop] = original end
+        pcall(function() obj[prop] = value end)
     end
-    if saved[property] == nil then saved[property] = previous end
-    pcall(function() obj[property] = newValue end)
-end
-local function belongsToCharacter(obj)
-    local parent = obj
-    while parent and parent ~= workspace do
-        if parent:IsA("Model") and Players:GetPlayerFromCharacter(parent) then return true end
-        parent = parent.Parent
-    end
-    return false
-end
-local function processVisual(obj)
-    if not obj or not obj.Parent then return end
-    if obj:IsA("BasePart") and not belongsToCharacter(obj) then
-        rememberVisual(obj, "CastShadow", false)
-    elseif obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
-        or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
-        if obj:IsDescendantOf(Lighting) then
-            rememberVisual(obj, "Enabled", false)
+    local function optimizeEffect(obj)
+        if obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
+            or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+            remember(obj, "Enabled", false)
         end
     end
-end
-local function startVisualOptimization()
-    RenderOptimizer.wanted = true
-    if RenderOptimizer.active or RenderOptimizer.restoring then return end
-    RenderOptimizer.active = true
-    rememberVisual(Lighting, "GlobalShadows", false)
-    for _, item in ipairs(Lighting:GetDescendants()) do
-        processVisual(item)
-    end
-    RenderOptimizer.queue = workspace:GetDescendants()
-    RenderOptimizer.index = 1
-    table.insert(RenderOptimizer.listeners, workspace.DescendantAdded:Connect(function(obj)
-        if RenderOptimizer.active and obj:IsA("BasePart") then
-            table.insert(RenderOptimizer.queue, obj)
+    Visual.start = function()
+        state.wanted = true
+        if state.active then return end
+        state.active = true
+        remember(Lighting, "GlobalShadows", false)
+        for _, obj in ipairs(Lighting:GetDescendants()) do
+            optimizeEffect(obj)
         end
-    end))
-    table.insert(RenderOptimizer.listeners, Lighting.DescendantAdded:Connect(function(obj)
-        if RenderOptimizer.active then processVisual(obj) end
-    end))
-    RenderOptimizer.worker = RunService.Heartbeat:Connect(function()
-        if not RenderOptimizer.active then return end
-        -- Budgeted, not full-map work each frame.
-        for _ = 1, 75 do
-            local obj = RenderOptimizer.queue[RenderOptimizer.index]
-            if not obj then break end
-            processVisual(obj)
-            RenderOptimizer.index = RenderOptimizer.index + 1
-        end
-        if RenderOptimizer.index > #RenderOptimizer.queue then
-            RenderOptimizer.queue = {}
-            RenderOptimizer.index = 1
-        end
-    end)
-end
-local function stopVisualOptimization()
-    RenderOptimizer.wanted = false
-    if not RenderOptimizer.active then return end
-    RenderOptimizer.active = false
-    if RenderOptimizer.worker then
-        RenderOptimizer.worker:Disconnect()
-        RenderOptimizer.worker = nil
+        state.conn = Lighting.DescendantAdded:Connect(function(obj)
+            if state.active then optimizeEffect(obj) end
+        end)
     end
-    for _, connection in ipairs(RenderOptimizer.listeners) do
-        connection:Disconnect()
-    end
-    RenderOptimizer.listeners = {}
-    RenderOptimizer.queue = {}
-    -- Return prior graphics values incrementally to avoid one-frame spikes.
-    local prior = RenderOptimizer.originals
-    RenderOptimizer.restoring = true
-    RenderOptimizer.originals = setmetatable({}, {__mode = "k"})
-    task.spawn(function()
-        local counter = 0
-        for obj, properties in pairs(prior) do
-            for property, original in pairs(properties) do
-                pcall(function() obj[property] = original end)
+    Visual.stop = function()
+        state.wanted = false
+        if not state.active then return end
+        state.active = false
+        if state.conn then state.conn:Disconnect(); state.conn=nil end
+        for obj, props in pairs(state.originals) do
+            for prop, previous in pairs(props) do
+                pcall(function() obj[prop] = previous end)
             end
-            counter = counter + 1
-            if counter % 80 == 0 then task.wait() end
         end
-        RenderOptimizer.restoring = false
-        if RenderOptimizer.wanted then startVisualOptimization() end
-    end)
-end
-
-Visual.state = RenderOptimizer
-Visual.start = startVisualOptimization
-Visual.stop = stopVisualOptimization
+        state.originals = setmetatable({}, {__mode="k"})
+    end
+    Visual.state = state
 end
 
 -- ============================================================
 -- GUI SETUP
 -- ============================================================
-for _, gui in ipairs(CoreGui:GetChildren()) do
-    if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or string.find(gui.Name, "ShadowTSBv", 1, true)) then
-        warn("Another TSB panel appears to be running. Restart Roblox before starting NEBULA v16.")
-        return
-    end
+-- Previous v16 could crash during UI initialization and leave a dead overlay.
+-- Destroy that orphaned GUI before constructing the new panel.
+local sharedEnvironment = nil
+pcall(function()
+    if type(getgenv) == "function" then sharedEnvironment = getgenv() end
+end)
+if sharedEnvironment and type(sharedEnvironment.__NEBULA_TSB_EXIT) == "function" then
+    pcall(sharedEnvironment.__NEBULA_TSB_EXIT)
+end
+local parentsToClean = {CoreGui}
+local pg = Player:FindFirstChildOfClass("PlayerGui")
+if pg then table.insert(parentsToClean, pg) end
+if type(gethui) == "function" then
+    local ok, ui = pcall(gethui)
+    if ok and ui then table.insert(parentsToClean, ui) end
+end
+for _, container in ipairs(parentsToClean) do
+    pcall(function()
+        for _, gui in ipairs(container:GetChildren()) do
+            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17") then
+                gui:Destroy()
+            end
+        end
+    end)
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NebulaTSBv16"
+ScreenGui.Name = "NebulaTSBv17"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
-ScreenGui.Parent = CoreGui
+local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
+if not guiOK then
+    local alternate = Player:FindFirstChildOfClass("PlayerGui") or Player:WaitForChild("PlayerGui", 7)
+    if not alternate then error("NEBULA: no UI parent") end
+    ScreenGui.Parent = alternate
+end
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(480, 680)
-local PANEL_W = math.max(260, math.min(326, math.floor(viewport.X - 22)))
-local PANEL_H = math.max(275, math.min(420, math.floor(viewport.Y - 34)))
+local PANEL_W = math.max(235, math.min(294, math.floor(viewport.X - 22)))
+local PANEL_H = math.max(280, math.min(396, math.floor(viewport.Y - 32)))
 MainFrame.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
 MainFrame.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(19, 22, 30)
@@ -232,13 +197,14 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "◈ NEBULA TSB • v16"
+Title.Text = "NEBULA TSB · v17"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
 Title.TextXAlignment = Enum.TextXAlignment.Left
 Title.Position = UDim2.new(0, 9, 0, 0)
 Title.Parent = TitleBar
+Title.Active = true
 
 local CloseButton = Instance.new("TextButton")
 CloseButton.Position = UDim2.new(1, -32, 0, 1)
@@ -271,7 +237,74 @@ local MinCorner = Instance.new("UICorner")
 MinCorner.CornerRadius = UDim.new(0, 4)
 MinCorner.Parent = MinimizeButton
 
+-- Keep close/minimize operational even if a later feature fails to initialize.
 local minimized = false
+local Shutdown = nil
+local closing = false
+local TextService = game:GetService("TextService")
+local okMeasure, measured = pcall(function()
+    return TextService:GetTextSize(Title.Text, Title.TextSize, Title.Font, Vector2.new(500, 32)).X
+end)
+local COLLAPSED_W = math.min(PANEL_W, math.max(155, math.ceil(okMeasure and measured or 130) + 80))
+
+local function hideOrShowMainChildren(visible)
+    for _, child in ipairs(MainFrame:GetChildren()) do
+        if child:IsA("GuiObject") and child ~= TitleBar then
+            child.Visible = visible
+        end
+    end
+end
+local function ensurePanelOnscreen()
+    if not MainFrame.Parent then return end
+    local cam = workspace.CurrentCamera
+    local vp = cam and cam.ViewportSize or Vector2.new(800, 600)
+    local position = MainFrame.AbsolutePosition
+    local size = MainFrame.AbsoluteSize
+    local nextX = math.clamp(position.X, 2, math.max(2, vp.X - size.X - 3))
+    local nextY = math.clamp(position.Y, 2, math.max(2, vp.Y - size.Y - 3))
+    local correction = Vector2.new(nextX-position.X, nextY-position.Y)
+    if correction.Magnitude > 1 then
+        local old = MainFrame.Position
+        MainFrame.Position = UDim2.new(old.X.Scale, old.X.Offset + correction.X,
+            old.Y.Scale, old.Y.Offset + correction.Y)
+    end
+end
+MinimizeButton.Activated:Connect(function()
+    if closing then return end
+    minimized = not minimized
+    MainFrame.Size = UDim2.fromOffset(minimized and COLLAPSED_W or PANEL_W,
+        minimized and 32 or PANEL_H)
+    MinimizeButton.Text = minimized and "+" or "−"
+    hideOrShowMainChildren(not minimized)
+    task.defer(ensurePanelOnscreen)
+end)
+local function emergencyClose()
+    if closing then return end
+    if Shutdown then
+        Shutdown()
+    else
+        closing = true
+        pcall(function() ScreenGui:Destroy() end)
+    end
+end
+CloseButton.Activated:Connect(emergencyClose)
+
+-- Emergency exit lives OUTSIDE the main panel and survives broken page layouts.
+local EmergencyButton = Instance.new("TextButton")
+EmergencyButton.Name = "EmergencyExit"
+EmergencyButton.Size = UDim2.fromOffset(28, 28)
+EmergencyButton.Position = UDim2.new(1, -34, 0, 77)
+EmergencyButton.BackgroundColor3 = Color3.fromRGB(112, 38, 50)
+EmergencyButton.BackgroundTransparency = 0.25
+EmergencyButton.BorderSizePixel = 0
+EmergencyButton.Text = "×"
+EmergencyButton.TextColor3 = Color3.new(1, 1, 1)
+EmergencyButton.Font = Enum.Font.SourceSansBold
+EmergencyButton.TextSize = 21
+EmergencyButton.ZIndex = 50
+EmergencyButton.Parent = ScreenGui
+Instance.new("UICorner", EmergencyButton).CornerRadius = UDim.new(0, 7)
+EmergencyButton.Activated:Connect(emergencyClose)
 
 local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Position = UDim2.new(0, 7, 0, 28)
@@ -471,13 +504,42 @@ TrashInfo.TextColor3 = Color3.fromRGB(160, 185, 212)
 TrashInfo.Text = "TRASH: OFF • manual pickup/throw M1\nServer controls item physics and damage."
 TrashInfo.Parent = MainFrame
 
+-- V16 ROOT CAUSE: missing declarations below crashed relayout(nil, ...).
+-- Create all controls before they are moved into tab pages.
+local TrashReturnButton = makeToggle("TRASH RETURN", 7, 196)
+TrashReturnButton.Text = "PICKUP + RETURN"
+TrashReturnButton.BackgroundColor3 = Color3.fromRGB(68, 70, 135)
+TrashReturnButton.TextColor3 = Color3.new(1, 1, 1)
+local AimToggle = makeToggle("AIM LOCK", 7, 196)
+paintToggle(AimToggle, "AIM LOCK", CONFIG.AIM_ENABLED)
+local AutoStartButton = makeToggle("RANDOM START", 7, 94)
+AutoStartButton.Text = "▶ START"
+AutoStartButton.TextColor3 = Color3.new(1, 1, 1)
+AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+local AutoStopButton = makeToggle("RANDOM STOP", 108, 95)
+AutoStopButton.Text = "■ STOP"
+AutoStopButton.TextColor3 = Color3.new(1, 1, 1)
+AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
+local AutoStatus = Instance.new("TextLabel")
+AutoStatus.Name = "RandomCycleStatus"
+AutoStatus.BackgroundColor3 = Color3.fromRGB(26, 49, 56)
+AutoStatus.TextColor3 = Color3.fromRGB(191, 247, 246)
+AutoStatus.Font = Enum.Font.SourceSansBold
+AutoStatus.TextSize = 12
+AutoStatus.TextWrapped = true
+AutoStatus.Text = "ЦИКЛ: выключен"
+AutoStatus.Parent = MainFrame
+Instance.new("UICorner", AutoStatus).CornerRadius = UDim.new(0, 5)
+local AutoCastToggle = makeToggle("AUTO CAST", 7, 196)
+paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
+
 local Refs = {}
 do
 -- ============================================================
 -- NEBULA v16 | Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "◈ NEBULA TSB • v16"
+Title.Text = "NEBULA TSB · v17"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -536,7 +598,7 @@ local function showPage(index)
     end
 end
 for i, tab in ipairs(tabButtons) do
-    tab.MouseButton1Click:Connect(function() showPage(i) end)
+    tab.Activated:Connect(function() showPage(i) end)
 end
 showPage(1)
 
@@ -567,7 +629,7 @@ end
 
 -- Target selection occupies a dedicated scroll; controls do not move when player list updates.
 local TargetPage = pages[1]
-local targetListHeight = math.max(66, PAGE_H - 136)
+local targetListHeight = math.max(48, PAGE_H - 136)
 relayout(SelectionFrame, TargetPage, 8, 8, innerW, targetListHeight)
 PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
 relayout(StartButton, TargetPage, 8, targetListHeight + 16, halfW, 33)
@@ -578,15 +640,24 @@ infoLabel(TargetPage, "Нажми игрока — попытка TP сразу.
 
 -- Dedicated auto-cycle page: START/STOP and cooldowns always visible.
 local CyclePage = pages[2]
-relayout(AutoStatus, CyclePage, 8, 8, innerW, 53)
+local CycleScroll = Instance.new("ScrollingFrame")
+CycleScroll.Name = "CycleScroll"
+CycleScroll.BackgroundTransparency = 1
+CycleScroll.BorderSizePixel = 0
+CycleScroll.Size = UDim2.fromScale(1, 1)
+CycleScroll.CanvasSize = UDim2.fromOffset(0, 268)
+CycleScroll.ScrollBarThickness = 3
+CycleScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+CycleScroll.Parent = CyclePage
+relayout(AutoStatus, CycleScroll, 8, 8, innerW, 53)
 AutoStatus.TextSize = 12
 AutoStatus.TextWrapped = true
 AutoStatus.Text = "ЦИКЛ: выключен • при двух CD стоим на месте"
-relayout(AutoStartButton, CyclePage, 8, 69, halfW, 39)
+relayout(AutoStartButton, CycleScroll, 8, 69, halfW, 39)
 AutoStartButton.Text = "▶ START"
-relayout(AutoStopButton, CyclePage, rightX, 69, rightW, 39)
+relayout(AutoStopButton, CycleScroll, rightX, 69, rightW, 39)
 AutoStopButton.Text = "■ STOP"
-relayout(AutoCastToggle, CyclePage, 8, 115, innerW, 34)
+relayout(AutoCastToggle, CycleScroll, 8, 115, innerW, 34)
 paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
 local function newCycleInput(name, x, value, placeholder, width)
     local input = Instance.new("TextBox")
@@ -598,13 +669,13 @@ local function newCycleInput(name, x, value, placeholder, width)
     input.TextSize = 14
     input.TextColor3 = Color3.fromRGB(245, 249, 255)
     input.BackgroundColor3 = Color3.fromRGB(41, 52, 69)
-    relayout(input, CyclePage, x, 157, width, 34)
+    relayout(input, CycleScroll, x, 157, width, 34)
     Instance.new("UICorner", input).CornerRadius = UDim.new(0, 6)
     return input
 end
 local SkillCD1Input = newCycleInput("CD1", 8, CONFIG.RANDOM_CD1, "Навык 1", halfW)
 local SkillCD2Input = newCycleInput("CD2", rightX, CONFIG.RANDOM_CD2, "Навык 2", rightW)
-local CDsLabel = infoLabel(CyclePage, "Слева CD навыка 1, справа CD навыка 2 (сек). Когда оба недоступны — без TP ждём здесь.", 199, 63)
+local CDsLabel = infoLabel(CycleScroll, "Слева CD навыка 1, справа CD навыка 2 (сек). Когда оба недоступны — без TP ждём здесь.", 199, 63)
 
 -- Feature page can scroll independently (all old buttons remain functional).
 local ControlsScroll = Instance.new("ScrollingFrame")
@@ -664,32 +735,18 @@ relayout(HKGButton, ExtraPage, 8, 135, innerW, 43)
 Instance.new("UICorner", HKGButton).CornerRadius = UDim.new(0, 7)
 local HKGStatus = infoLabel(ExtraPage, "Внешний Lua-код загружается только по нажатию. Его безопасность и совместимость не подтверждены.", 186, 78)
 
--- Minimized bar uses title text width rather than the full panel width.
-local TextService = game:GetService("TextService")
-local textWidth = TextService:GetTextSize(Title.Text, Title.TextSize, Title.Font, Vector2.new(500, 34)).X
-local COLLAPSED_W = math.min(PANEL_W, math.max(150, math.ceil(textWidth) + 84))
-MinimizeButton.MouseButton1Click:Connect(function()
-    minimized = not minimized
-    local current = MainFrame.AbsolutePosition
-    MainFrame.Size = UDim2.fromOffset(minimized and COLLAPSED_W or PANEL_W, minimized and 32 or PANEL_H)
-    MainFrame.Position = UDim2.fromOffset(current.X, current.Y)
-    TitleBar.Size = UDim2.new(1, 0, 0, 32)
-    MinimizeButton.Text = minimized and "+" or "−"
-    for _, gui in ipairs({StatusLabel, TabsBar, PageHost}) do
-        gui.Visible = not minimized
-    end
-end)
+-- Minimize/restore and emergency exit are connected before the feature pages.
 
 -- Dragging only by the header avoids accidental movement during menu scrolling.
 local dragStart, frameStart, dragInput = nil, nil, nil
-TitleBar.InputBegan:Connect(function(input)
+Title.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         dragInput = input
         dragStart = Vector2.new(input.Position.X, input.Position.Y)
         frameStart = MainFrame.AbsolutePosition
     end
 end)
-TitleBar.InputEnded:Connect(function(input)
+Title.InputEnded:Connect(function(input)
     if dragInput == input then dragInput = nil end
 end)
 local moveConnection = UserInputService.InputChanged:Connect(function(input)
@@ -778,7 +835,7 @@ local TrashToken = 0
 local TrashPhase = "idle"
 local AimTarget = nil
 local AimHighlight = nil
-local AimRenderName = "Nebula_AimV16"
+local AimRenderName = "Nebula_AimV17"
 local TrashIndex = {}
 local TrashBlacklist = {}
 local TrashIndexReady = false
@@ -789,7 +846,7 @@ local ManualTeleportAt = -1e9
 local LastPositionTick = 0
 local LastRealSpeed = 0
 local FollowLastCorrection = -1e9
-local MoveRenderName = "Nebula_MoveV16"
+local MoveRenderName = "Nebula_MoveV17"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1560,7 +1617,7 @@ local function RefreshPlayerList()
             ClickArea.ZIndex = 2
             ClickArea.Parent = PlayerEntry
 
-            ClickArea.MouseButton1Click:Connect(function()
+            ClickArea.Activated:Connect(function()
                 -- Selection must never wait for a follower tick or a UI refresh.
                 if StopRandomCycle then StopRandomCycle(true) end
                 if BackstabActive and StopBackstab then StopBackstab() end
@@ -2004,7 +2061,7 @@ local function acquireAimTarget()
     local char = best.Character
     if char then
         local outline = Instance.new("Highlight")
-        outline.Name = "NebulaV16AimOutline"
+        outline.Name = "NebulaV17AimOutline"
         outline.Adornee = char
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -2034,7 +2091,7 @@ local function updateAim()
         clearAimTarget()
         AimTarget = saved
         local outline = Instance.new("Highlight")
-        outline.Name = "NebulaV16AimOutline"
+        outline.Name = "NebulaV17AimOutline"
         outline.Adornee = saved.Character
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -2072,10 +2129,10 @@ local function setAimEnabled(enabled)
     end
 end
 
-AimToggle.MouseButton1Click:Connect(function()
+AimToggle.Activated:Connect(function()
     setAimEnabled(not CONFIG.AIM_ENABLED)
 end)
-AimHud.MouseButton1Click:Connect(function()
+AimHud.Activated:Connect(function()
     if not CONFIG.AIM_ENABLED or os.clock() < aimSuppressClickUntil then return end
     -- Keep current lock until the player explicitly taps the circle.
     if AimTarget then
@@ -2399,9 +2456,9 @@ StartRandomCycle = function()
     end)
 end
 
-Refs.AutoStartButton.MouseButton1Click:Connect(StartRandomCycle)
-Refs.AutoStopButton.MouseButton1Click:Connect(function() StopRandomCycle(true) end)
-Refs.AutoCastToggle.MouseButton1Click:Connect(function()
+Refs.AutoStartButton.Activated:Connect(StartRandomCycle)
+Refs.AutoStopButton.Activated:Connect(function() StopRandomCycle(true) end)
+Refs.AutoCastToggle.Activated:Connect(function()
     CONFIG.RANDOM_AUTOUSE = not CONFIG.RANDOM_AUTOUSE
     paintToggle(Refs.AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
     if not RandomCycle.enabled then
@@ -2428,7 +2485,7 @@ local function paintOptimizeButton()
     Refs.OptimizationToggle.BackgroundColor3 = Visual.state.wanted
         and Color3.fromRGB(18, 125, 90) or Color3.fromRGB(125, 48, 58)
 end
-Refs.OptimizationToggle.MouseButton1Click:Connect(function()
+Refs.OptimizationToggle.Activated:Connect(function()
     if Visual.state.wanted then
         Visual.stop()
     else
@@ -2440,7 +2497,7 @@ end)
 local HKG_URL = "https://raw.githubusercontent.com/pusahursahur-gif/HKG-hub./refs/heads/Lua/HKG-void"
 local hkgStarted = false
 local hkgLoading = false
-Refs.HKGButton.MouseButton1Click:Connect(function()
+Refs.HKGButton.Activated:Connect(function()
     if hkgLoading or hkgStarted then return end
     if type(loadstring) ~= "function" then
         Refs.HKGStatus.Text = "No loadstring support in this executor"
@@ -2492,7 +2549,7 @@ SpeedInput.FocusLost:Connect(function()
     refreshSpeed()
 end)
 
-SpeedToggle.MouseButton1Click:Connect(function()
+SpeedToggle.Activated:Connect(function()
     CONFIG.SPEED_ENABLED = not CONFIG.SPEED_ENABLED
     paintToggle(SpeedToggle, "SPEED", CONFIG.SPEED_ENABLED)
     if CONFIG.SPEED_ENABLED then
@@ -2512,7 +2569,7 @@ DistanceInput.FocusLost:Connect(function()
     DistanceInput.Text = tostring(CONFIG.BEHIND_STUDS)
 end)
 
-TpOnceButton.MouseButton1Click:Connect(function()
+TpOnceButton.Activated:Connect(function()
     if StopRandomCycle then StopRandomCycle(false) end
     if not SelectedTarget then
         StatusLabel.Text = "Select a player first"
@@ -2522,7 +2579,7 @@ TpOnceButton.MouseButton1Click:Connect(function()
     StatusLabel.Text = ok and ("TP attempted: " .. SelectedTarget.Name) or "TP failed: unavailable"
 end)
 
-RandomTPButton.MouseButton1Click:Connect(function()
+RandomTPButton.Activated:Connect(function()
     if StopRandomCycle then StopRandomCycle(false) end
     local other = chooseRandomOpponent()
     if not other then
@@ -2543,11 +2600,11 @@ ThrowInput.FocusLost:Connect(function()
     ThrowInput.Text = tostring(CONFIG.TRASH_THROW_SPEED)
 end)
 
-TrashAutoButton.MouseButton1Click:Connect(function()
+TrashAutoButton.Activated:Connect(function()
     if StopRandomCycle then StopRandomCycle(true) end
     trashCycle()
 end)
-TrashReturnButton.MouseButton1Click:Connect(function()
+TrashReturnButton.Activated:Connect(function()
     if StopRandomCycle then StopRandomCycle(true) end
     trashReturnOnce()
 end)
@@ -2567,10 +2624,10 @@ SpeedLoopConnection = RunService.Heartbeat:Connect(function(dt)
 end)
 
 
-StartButton.MouseButton1Click:Connect(StartBackstab)
-StopButton.MouseButton1Click:Connect(StopBackstab)
+StartButton.Activated:Connect(StartBackstab)
+StopButton.Activated:Connect(StopBackstab)
 
-SafeToggle.MouseButton1Click:Connect(function()
+SafeToggle.Activated:Connect(function()
     CONFIG.SAFE_ZONE = not CONFIG.SAFE_ZONE
     if not CONFIG.SAFE_ZONE then
         removeSafeZone(true)
@@ -2584,7 +2641,7 @@ SafeToggle.MouseButton1Click:Connect(function()
     paintToggle(SafeToggle, "SAVE ZONA", CONFIG.SAFE_ZONE)
 end)
 
-InvisToggle.MouseButton1Click:Connect(function()
+InvisToggle.Activated:Connect(function()
     CONFIG.INVISIBLE = not CONFIG.INVISIBLE
     if CONFIG.INVISIBLE then
         Invisibility.apply()
@@ -2598,7 +2655,7 @@ InvisToggle.MouseButton1Click:Connect(function()
     paintToggle(InvisToggle, "INVIS", CONFIG.INVISIBLE)
 end)
 
-ResetToggle.MouseButton1Click:Connect(function()
+ResetToggle.Activated:Connect(function()
     CONFIG.AUTO_RESET = not CONFIG.AUTO_RESET
     paintToggle(ResetToggle, "AUTO RESET", CONFIG.AUTO_RESET)
     StatusLabel.Text = CONFIG.AUTO_RESET
@@ -2609,34 +2666,41 @@ ResetToggle.MouseButton1Click:Connect(function()
         or Color3.fromRGB(220, 225, 240)
 end)
 
-CloseButton.MouseButton1Click:Connect(function()
-    Visual.stop()
-    if Refs.moveConnection then Refs.moveConnection:Disconnect(); Refs.moveConnection = nil end
-    if StopRandomCycle then StopRandomCycle(false) end
+-- One shutdown path for close X, emergency X and re-execution.
+Shutdown = function()
+    if closing then return end
+    closing = true
+    local function safe(callback) pcall(callback) end
+    safe(function() if StopRandomCycle then StopRandomCycle(false) end end)
     Active = false
-    stopTrash()
-    setAimEnabled(false)
-    pcall(function() RunService:UnbindFromRenderStep(AimRenderName) end)
-    pcall(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
-    if TrashIndexConnection then TrashIndexConnection:Disconnect() end
-    CONFIG.SPEED_ENABLED = false
-    releaseSpeed()
-    if SpeedLoopConnection then SpeedLoopConnection:Disconnect(); SpeedLoopConnection = nil end
-    StopBackstab()
-    removeSafeZone(true)
-    Invisibility.remove()
+    safe(Visual.stop)
+    safe(stopTrash)
+    safe(function() setAimEnabled(false) end)
+    safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
+    safe(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
+    safe(function() if TrashIndexConnection then TrashIndexConnection:Disconnect() end end)
+    safe(function() CONFIG.SPEED_ENABLED = false; releaseSpeed() end)
+    safe(function() if SpeedLoopConnection then SpeedLoopConnection:Disconnect() end end)
+    safe(function() if PositionConnection then PositionConnection:Disconnect() end end)
+    safe(function() if Refs.moveConnection then Refs.moveConnection:Disconnect() end end)
+    safe(function() StopBackstab() end)
+    safe(function() removeSafeZone(false) end) -- no unwanted exit teleport
+    safe(Invisibility.remove)
     CONFIG.INVISIBLE = false
-    if HealthConnection then HealthConnection:Disconnect() end
-    if DeathConnection then DeathConnection:Disconnect() end
-    if CharacterConnection then CharacterConnection:Disconnect() end
-    if DescendantConnection then DescendantConnection:Disconnect() end
-    if InvisHardConnection then InvisHardConnection:Disconnect() end
-    for _, conn in ipairs(CleanupConnections) do
-        conn:Disconnect()
+    for _, conn in pairs({HealthConnection, DeathConnection, CharacterConnection,
+        DescendantConnection, InvisHardConnection}) do
+        if conn then safe(function() conn:Disconnect() end) end
     end
-    if HiddenFolder then pcall(function() HiddenFolder:Destroy() end) end
-    ScreenGui:Destroy()
-end)
+    for _, conn in ipairs(CleanupConnections) do
+        if conn then safe(function() conn:Disconnect() end) end
+    end
+    safe(function() if HiddenFolder then HiddenFolder:Destroy() end end)
+    if sharedEnvironment and sharedEnvironment.__NEBULA_TSB_EXIT == Shutdown then
+        sharedEnvironment.__NEBULA_TSB_EXIT = nil
+    end
+    safe(function() ScreenGui:Destroy() end)
+end
+if sharedEnvironment then sharedEnvironment.__NEBULA_TSB_EXIT = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
@@ -2709,4 +2773,4 @@ RefreshPlayerList()
 UpdateStatus()
 Visual.start()
 paintOptimizeButton()
-Message("NEBULA TSB", "v16: compact tabs, automatic FPS optimize, cooldown-aware cycle", 4)
+Message("NEBULA TSB", "v17: touch-friendly panel, stable minimize and cycle", 3)
