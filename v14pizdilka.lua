@@ -1,4 +1,4 @@
--- GRINGO XP // SHADOW TSB v14 | LocalScript / client-side behavior only
+-- GRINGO XP // SHADOW TSB v15 | LocalScript / client-side behavior only
 --[[
 ██████╗ ██████╗ ██╗███╗   ██╗ ██████╗  ██████╗ 
 ██╔══██╗██╔══██╗██║████╗  ██║██╔════╝ ██╔═══██╗
@@ -14,13 +14,15 @@ SCRIPT HIZOLON PRIVAT SS+
 • Позиционирование позади цели на регулируемом расстоянии + пинг-компенсация
 • Компактное широкое меню с прокруткой и выбором цели
 • SPEED: ON/OFF + число + управляемое ускорение при движении
-• AUTO EVADE: встроен, автоматически реагирует на признаки серьёзной атаки (best effort)
+• AUTO EVADE удалён целиком: чужие атаки не запускают автоматические телепорты
+• RANDOM CYCLE: Garou 1 → 2 → ожидание около центрального Dummy → повтор
+• INSTANT SELECT: касание игрока выполняет немедленную попытку TP
 • TRASH AUTO: непрерывный поиск с подтверждением подбора и повторными попытками
 • THROW SPEED: целочисленная локальная скорость мусорки (бросок контролируется сервером)
 • PICKUP + RETURN: один подбор с попыткой вернуться на прежнее место
 • AIM LOCK: одна выбранная по прицелу цель, светящийся контур без заливки
 Стиль: HIZOLON Fling TSB
-Версия: SS+ (v14 target-facing independent of camera, movement-first follow, verified trash workflow)
+Версия: SS+ (v15 instant select + random Garou skill cycle; no reactive evade)
 ]]
 
 -- ============================================================
@@ -43,7 +45,7 @@ local Camera = workspace.CurrentCamera
 -- ============================================================
 local CONFIG = {
     BEHIND_STUDS = 5,
-    POSITION_UPDATE_INTERVAL = 0.06, -- track selected target at 16Hz, not every render frame
+    POSITION_UPDATE_INTERVAL = 0.045, -- 22 Hz follow; selection teleport is immediate
     FOLLOW_CORRECTION_COOLDOWN = 0.22, -- reduce camera jitter from repeat pivots
     FOLLOW_HARD_SNAP_DISTANCE = 12, -- large errors corrected without easing
     FOLLOW_MANUAL_LEASH = 16, -- preserve WASD until target has moved far away
@@ -82,44 +84,50 @@ local CONFIG = {
     AIM_ENABLED = false,
     AIM_CAMERA_RISE = 1.35,
     AIM_TARGET_RISE = 2.6,
-    EVADE_ENABLED = true,  -- встроенная автоматическая функция
-    EVADE_DURATION = 0.8,
-    EVADE_DISTANCE = 32,
-    EVADE_COOLDOWN = 2.0,
-    EVADE_DAMAGE_THRESHOLD = 12,
-    EVADE_THREAT_RADIUS = 30,
-    EVADE_ACTION4_RADIUS = 12,
+    -- Approximations for Garou's normal (non-awakened) abilities.
+    -- Client-side timers cannot observe authoritative server cooldowns.
+    RANDOM_CD1 = 18,
+    RANDOM_CD2 = 21,
+    RANDOM_GAP_1_TO_2 = 3.0,
+    RANDOM_POST_2 = 1.4,
+    RANDOM_TARGET_RANGE = 5,
+    RANDOM_SAFE_MIN_ENEMY_DISTANCE = 25,
+    RANDOM_AUTOUSE = true,
 }
 
 -- ============================================================
 -- GUI SETUP
 -- ============================================================
-local oldGui = CoreGui:FindFirstChild("GringoXPShadowTSBv14")
+local oldGui = CoreGui:FindFirstChild("GringoXPShadowTSBv15")
 if oldGui then
-    warn("GRINGO XP SHADOW v14 is already open. Close it before re-running.")
+    warn("GRINGO XP SHADOW v15 is already open. Close it before re-running.")
     return
 end
 
+local oldV14 = CoreGui:FindFirstChild("GringoXPShadowTSBv14")
 local oldV13 = CoreGui:FindFirstChild("GringoXPShadowTSBv13")
 local oldV12 = CoreGui:FindFirstChild("GringoXPShadowTSBv12")
 local oldV11 = CoreGui:FindFirstChild("GringoXPShadowTSBv11")
 local oldV10 = CoreGui:FindFirstChild("GringoXPShadowTSBv10")
 local oldV9 = CoreGui:FindFirstChild("GringoXPShadowTSBv9")
 local oldV8 = CoreGui:FindFirstChild("GringoXPShadowTSBv8")
-if oldV13 or oldV12 or oldV11 or oldV10 or oldV9 or oldV8 then
-    warn("Older SHADOW version is still running. Restart Roblox before running v14 to avoid conflicting teleport loops.")
+if oldV14 or oldV13 or oldV12 or oldV11 or oldV10 or oldV9 or oldV8 then
+    warn("Older SHADOW version is still running. Restart Roblox before running v15 to avoid conflicting teleport loops.")
     return
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "GringoXPShadowTSBv14"
+ScreenGui.Name = "GringoXPShadowTSBv15"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 ScreenGui.Parent = CoreGui
 
 local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.fromOffset(358, 362)
-MainFrame.Position = UDim2.new(0.5, -179, 0.5, -181)
+local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(480, 680)
+local PANEL_W = math.max(300, math.min(474, math.floor(viewport.X - 24)))
+local PANEL_H = math.max(295, math.min(520, math.floor(viewport.Y - 38)))
+MainFrame.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
+MainFrame.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(19, 22, 30)
 MainFrame.BorderSizePixel = 0
 MainFrame.Active = true
@@ -148,7 +156,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -48, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "◆ GRINGO XP  •  SHADOW v14"
+Title.Text = "◆ GRINGO XP  •  SHADOW v15"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 11
@@ -190,7 +198,7 @@ MinCorner.Parent = MinimizeButton
 local minimized = false
 MinimizeButton.MouseButton1Click:Connect(function()
     minimized = not minimized
-    MainFrame.Size = UDim2.fromOffset(358, minimized and 21 or 362)
+    MainFrame.Size = UDim2.fromOffset(PANEL_W, minimized and 21 or PANEL_H)
     MinimizeButton.Text = minimized and "+" or "-"
     for _, child in ipairs(MainFrame:GetChildren()) do
         if child:IsA("GuiObject") and child ~= TitleBar then
@@ -399,7 +407,7 @@ TrashInfo.Parent = MainFrame
 
 -- Compact wide, vertically scrollable controls. Player list scrolls separately.
 MainFrame.ClipsDescendants = true
-Title.Text = "◆ SHADOW TSB • v14"
+Title.Text = "◆ GRINGO XP SHADOW • v15"
 SelectionFrame.Position = UDim2.fromOffset(7, 49)
 SelectionFrame.Size = UDim2.new(1, -14, 0, 112)
 StartButton.Position = UDim2.fromOffset(7, 167)
@@ -409,9 +417,9 @@ StopButton.Size = UDim2.new(0.5, -10, 0, 27)
 
 local ControlsScroll = Instance.new("ScrollingFrame")
 ControlsScroll.Name = "ControlsScroll"
-ControlsScroll.Position = UDim2.fromOffset(7, 202)
-ControlsScroll.Size = UDim2.new(1, -14, 0, 152)
-ControlsScroll.CanvasSize = UDim2.fromOffset(0, 366)
+ControlsScroll.Position = UDim2.fromOffset(7, 274)
+ControlsScroll.Size = UDim2.new(1, -14, 1, -282)
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 483)
 ControlsScroll.ScrollBarThickness = 5
 ControlsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 ControlsScroll.BackgroundColor3 = Color3.fromRGB(25, 29, 40)
@@ -425,30 +433,99 @@ local function placeControl(obj, x, y, width, height)
     obj.Position = UDim2.fromOffset(x, y)
     obj.Size = UDim2.fromOffset(width, height or 26)
 end
-placeControl(SafeToggle, 7, 8, 157)
-placeControl(ResetToggle, 173, 8, 156)
-placeControl(InvisToggle, 7, 41, 322)
-placeControl(SpeedToggle, 7, 74, 157)
-placeControl(SpeedInput, 173, 74, 156)
-placeControl(DistanceLabel, 7, 107, 157)
-placeControl(DistanceInput, 173, 107, 156)
-placeControl(TpOnceButton, 7, 140, 157)
-placeControl(RandomTPButton, 173, 140, 156)
-placeControl(TrashAutoButton, 7, 173, 322)
-placeControl(ThrowLabel, 7, 206, 157)
-placeControl(ThrowInput, 173, 206, 156)
-placeControl(TrashInfo, 7, 306, 322, 52)
+local FULL_W = PANEL_W - 41
+local HALF_W = math.floor((FULL_W - 8) / 2)
+local RIGHT_X = 7 + HALF_W + 8
+local RIGHT_W = FULL_W - HALF_W - 8
+placeControl(SafeToggle, 7, 8, HALF_W)
+placeControl(ResetToggle, RIGHT_X, 8, RIGHT_W)
+placeControl(InvisToggle, 7, 41, FULL_W)
+placeControl(SpeedToggle, 7, 74, HALF_W)
+placeControl(SpeedInput, RIGHT_X, 74, RIGHT_W)
+placeControl(DistanceLabel, 7, 107, HALF_W)
+placeControl(DistanceInput, RIGHT_X, 107, RIGHT_W)
+placeControl(TpOnceButton, 7, 140, HALF_W)
+placeControl(RandomTPButton, RIGHT_X, 140, RIGHT_W)
+placeControl(TrashAutoButton, 7, 173, FULL_W)
+placeControl(ThrowLabel, 7, 206, HALF_W)
+placeControl(ThrowInput, RIGHT_X, 206, RIGHT_W)
+placeControl(TrashInfo, 7, 306, FULL_W, 52)
 TrashInfo.TextSize = 11
 
 local TrashReturnButton = makeToggle("TRASH RETURN", 7, 263)
-placeControl(TrashReturnButton, 7, 239, 322)
+placeControl(TrashReturnButton, 7, 239, FULL_W)
 TrashReturnButton.Text = "PICKUP CAN + RETURN (ONCE)"
 TrashReturnButton.BackgroundColor3 = Color3.fromRGB(68, 70, 135)
 TrashReturnButton.TextColor3 = Color3.new(1, 1, 1)
 
 local AimToggle = makeToggle("AIM", 7, 263)
-placeControl(AimToggle, 7, 272, 322)
+placeControl(AimToggle, 7, 272, FULL_W)
 paintToggle(AimToggle, "AIM LOCK", false)
+
+-- RANDOM CYCLE controls are outside the scroll for instantaneous STOP.
+local AutoStartButton = makeToggle("RANDOM START", 7, 150)
+AutoStartButton.Position = UDim2.fromOffset(7, 203)
+AutoStartButton.Size = UDim2.fromOffset(math.floor((PANEL_W - 22) / 2), 29)
+AutoStartButton.Text = "▶ RANDOM: START"
+AutoStartButton.TextColor3 = Color3.new(1, 1, 1)
+AutoStartButton.TextSize = 13
+AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+
+local AutoStopButton = makeToggle("RANDOM STOP", 7, 150)
+AutoStopButton.Position = UDim2.fromOffset(14 + math.floor((PANEL_W - 22) / 2), 203)
+AutoStopButton.Size = UDim2.fromOffset(PANEL_W - 22 - math.floor((PANEL_W - 22) / 2), 29)
+AutoStopButton.Text = "■ RANDOM: STOP"
+AutoStopButton.TextColor3 = Color3.new(1, 1, 1)
+AutoStopButton.TextSize = 13
+AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
+
+local AutoStatus = Instance.new("TextLabel")
+AutoStatus.Name = "RandomCycleStatus"
+AutoStatus.Position = UDim2.fromOffset(8, 236)
+AutoStatus.Size = UDim2.new(1, -16, 0, 31)
+AutoStatus.BackgroundColor3 = Color3.fromRGB(26, 49, 56)
+AutoStatus.TextColor3 = Color3.fromRGB(191, 247, 246)
+AutoStatus.Font = Enum.Font.SourceSansBold
+AutoStatus.TextSize = 12
+AutoStatus.TextWrapped = true
+AutoStatus.Text = "RANDOM CYCLE: OFF | Hero Hunter 1 → 2 → Dummy"
+AutoStatus.Parent = MainFrame
+Instance.new("UICorner", AutoStatus).CornerRadius = UDim.new(0, 5)
+
+local function newCycleInput(name, x, y, value, placeholder, width)
+    local t = Instance.new("TextBox")
+    t.Name = name
+    t.Text = tostring(value)
+    t.PlaceholderText = placeholder
+    t.Position = UDim2.fromOffset(x, y)
+    t.Size = UDim2.fromOffset(width, 30)
+    t.BackgroundColor3 = Color3.fromRGB(40, 46, 62)
+    t.TextColor3 = Color3.new(1, 1, 1)
+    t.TextSize = 12
+    t.Font = Enum.Font.SourceSansBold
+    t.ClearTextOnFocus = false
+    t.Parent = ControlsScroll
+    Instance.new("UICorner", t).CornerRadius = UDim.new(0, 4)
+    return t
+end
+
+local AutoCastToggle = makeToggle("AUTO CAST", 7, FULL_W)
+placeControl(AutoCastToggle, 7, 366, FULL_W, 30)
+paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
+
+local SkillCD1Input = newCycleInput("Cooldown1", 7, 405, CONFIG.RANDOM_CD1, "CD 1 sec", HALF_W)
+local SkillCD2Input = newCycleInput("Cooldown2", RIGHT_X, 405, CONFIG.RANDOM_CD2, "CD 2 sec", RIGHT_W)
+local CDsLabel = Instance.new("TextLabel")
+CDsLabel.Position = UDim2.fromOffset(7, 439)
+CDsLabel.Size = UDim2.fromOffset(FULL_W, 33)
+CDsLabel.BackgroundTransparency = 1
+CDsLabel.TextColor3 = Color3.fromRGB(163, 192, 213)
+CDsLabel.TextWrapped = true
+CDsLabel.Font = Enum.Font.SourceSans
+CDsLabel.TextSize = 12
+CDsLabel.Text = "CD (seconds): left = skill 1, right = skill 2. Garou base moves."
+CDsLabel.Parent = ControlsScroll
+
 
 -- Touch-friendly circular target lock beneath the standard Roblox top-left UI.
 local AimHud = Instance.new("TextButton")
@@ -473,6 +550,14 @@ AimHudStroke.Color = Color3.fromRGB(176, 183, 197)
 -- ============================================================
 -- VARIABLES
 -- ============================================================
+local StopRandomCycle = nil
+local StartRandomCycle = nil
+local RandomCycle = {
+    enabled = false, token = 0, phase = "off", target = nil,
+    previousId = nil, readyAt = {[1] = 0, [2] = 0},
+    firstCastAttemptAt = nil, secondCastAttemptAt = nil,
+    savedOrigin = nil, cooldownNotice = ""
+}
 local SelectedTarget = nil
 local PlayerButtons = {}
 local BackstabActive = false
@@ -491,16 +576,11 @@ local SafeTriggered = false
 local InvisHardConnection = nil
 local HiddenFolder = nil
 local DescendantConnection = nil
-local Evading = false
-local EvadeToken = 0
-local LastEvadeAt = -1e9
-local EvadeReturnCFrame = nil
+local Evading = false -- compatibility guard only; never set true in v15
 local OriginalWalkSpeed = nil
 local SpeedHumanoid = nil
 local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
-local EffectConnection = nil
-local EnemyConnections = {}
 local Active = true
 local TrashBusy = false
 local TrashAutoEnabled = false
@@ -508,7 +588,7 @@ local TrashToken = 0
 local TrashPhase = "idle"
 local AimTarget = nil
 local AimHighlight = nil
-local AimRenderName = "GringoXP_AimV14"
+local AimRenderName = "GringoXP_AimV15"
 local TrashIndex = {}
 local TrashBlacklist = {}
 local TrashIndexReady = false
@@ -519,7 +599,7 @@ local ManualTeleportAt = -1e9
 local LastPositionTick = 0
 local LastRealSpeed = 0
 local FollowLastCorrection = -1e9
-local MoveRenderName = "GringoXP_MoveV14"
+local MoveRenderName = "GringoXP_MoveV15"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -996,204 +1076,8 @@ RunService:BindToRenderStep(MoveRenderName, Enum.RenderPriority.Input.Value + 2,
 end)
 
 -- ============================================================
--- AUTO EVADE: predicted cues + heavy-damage fallback
--- A local teleport cannot cancel server-side damage/counters.
--- ============================================================
-local DANGER_TERMS = {
-    "death counter", "deathcounter", "serious punch", "seriouspunch",
-    "serious table", "serious table flip", "table flip", "tableflip",
-    "omnidirectional", "omni directional", "ultimate", "ultmove",
-    "death blow", "final hunt", "incinerate", "atomic slash",
-    "counter", "cataclysm", "dragon's descent", "dragons descent",
-    "awakening", "finale"
-}
-
-local function dangerName(name)
-    name = string.lower(tostring(name or ""))
-    for _, keyword in ipairs(DANGER_TERMS) do
-        if name:find(keyword, 1, true) then return true end
-    end
-    return false
-end
-
-local function nearbyEnemyHRP()
-    local myRoot = getHRP(Player)
-    if not myRoot then return nil end
-    local nearest, distance = nil, CONFIG.EVADE_THREAT_RADIUS
-    for _, other in ipairs(Players:GetPlayers()) do
-        if other ~= Player and isAlive(other) then
-            local root = getHRP(other)
-            if root then
-                local dist = (root.Position - myRoot.Position).Magnitude
-                if dist < distance then
-                    nearest, distance = root, dist
-                end
-            end
-        end
-    end
-    return nearest
-end
-
-local function findSafeEvadeDestination(base, sourceRoot, char)
-    local away = sourceRoot and (base.Position - sourceRoot.Position) or -base.LookVector
-    away = Vector3.new(away.X, 0, away.Z)
-    if away.Magnitude < 0.1 then away = Vector3.new(0, 0, -1) end
-    away = away.Unit
-    local right = Vector3.new(-away.Z, 0, away.X)
-
-    local params = RaycastParams.new()
-    params.FilterType = Enum.RaycastFilterType.Exclude
-    params.FilterDescendantsInstances = {char}
-    params.IgnoreWater = true
-
-    -- Try away, then sides. Do not place the character in empty space or walls.
-    local options = {
-        away,
-        (away * 0.75 + right * 0.66).Unit,
-        (away * 0.75 - right * 0.66).Unit,
-        right,
-        -right,
-    }
-    for _, direction in ipairs(options) do
-        local desired = base.Position + direction * CONFIG.EVADE_DISTANCE
-        local hit = workspace:Raycast(base.Position + Vector3.new(0, 2, 0),
-            direction * CONFIG.EVADE_DISTANCE, params)
-        if hit then desired = hit.Position - direction * 4 end
-        if (desired - base.Position).Magnitude >= 9 then
-            local floor = workspace:Raycast(desired + Vector3.new(0, 22, 0),
-                Vector3.new(0, -72, 0), params)
-            if floor and floor.Normal.Y >= 0.6 then
-                return Vector3.new(desired.X, floor.Position.Y + 4, desired.Z)
-            end
-        end
-    end
-    return nil
-end
-
-local function emergencyMove(reason, sourceRoot)
-    if not Active or not CONFIG.EVADE_ENABLED or Evading or TrashBusy or SafeTriggered or ResetInProgress then return end
-    local now = os.clock()
-    if now - LastEvadeAt < CONFIG.EVADE_COOLDOWN then return end
-    local char = Player.Character
-    local root = getHRP(Player)
-    local hum = speedHumanoid()
-    if not char or not root or not hum or hum.Health <= 0 or root.Anchored then return end
-
-    local base = root.CFrame
-    local safePos = findSafeEvadeDestination(base, sourceRoot, char)
-    if not safePos then return end
-    Evading = true
-    LastEvadeAt = now
-    EvadeToken = EvadeToken + 1
-    local token = EvadeToken
-    EvadeReturnCFrame = base
-    local ok = pcall(function()
-        char:PivotTo(CFrame.new(safePos) * base.Rotation)
-        root.AssemblyLinearVelocity = Vector3.zero
-        root.AssemblyAngularVelocity = Vector3.zero
-    end)
-    if not ok then
-        Evading = false
-        EvadeReturnCFrame = nil
-        return
-    end
-    StatusLabel.Text = "EVADE: " .. tostring(reason)
-    StatusLabel.TextColor3 = Color3.fromRGB(90, 225, 255)
-    task.delay(CONFIG.EVADE_DURATION, function()
-        if token ~= EvadeToken then return end
-        if Player.Character == char and root.Parent and hum.Parent and hum.Health > 0
-            and not SafeTriggered and not ResetInProgress then
-            pcall(function()
-                char:PivotTo(base)
-                root.AssemblyLinearVelocity = Vector3.zero
-                root.AssemblyAngularVelocity = Vector3.zero
-            end)
-        end
-        Evading = false
-        EvadeReturnCFrame = nil
-        if Active then UpdateStatus() end
-    end)
-end
-
--- Track named major moves when detectable. Many TSB animations have numeric
--- asset IDs and generic names, so this is a heuristic, not a guaranteed detector.
--- Some high-priority combat animations can also be mistaken for an ultimate.
-local function tryEvadeFromAnimation(track, other)
-    if not Active or not CONFIG.EVADE_ENABLED or Evading then return end
-    local myRoot = getHRP(Player)
-    local theirRoot = getHRP(other)
-    if not myRoot or not theirRoot then return end
-    local distance = (myRoot.Position - theirRoot.Position).Magnitude
-    if distance > CONFIG.EVADE_THREAT_RADIUS then return end
-    local anim = track.Animation
-    local label = (anim and anim.Name or "") .. " " .. track.Name
-    if dangerName(label) then
-        emergencyMove("named attack", theirRoot)
-    elseif distance <= CONFIG.EVADE_ACTION4_RADIUS then
-        -- Action4 is frequently used for strong combat animations, but not only them.
-        local ok, isStrong = pcall(function()
-            return track.Priority == Enum.AnimationPriority.Action4
-        end)
-        if ok and isStrong then
-            emergencyMove("strong animation", theirRoot)
-        end
-    end
-end
-
-local function bindMajorEffectDetection()
-    -- Event-driven, no per-frame workspace scanning.
-    local lastCheck = 0
-    EffectConnection = workspace.DescendantAdded:Connect(function(item)
-        if not Active or not CONFIG.EVADE_ENABLED or Evading then return end
-        if not (item:IsA("Model") or item:IsA("BasePart")
-            or item:IsA("Sound") or item:IsA("ParticleEmitter")
-            or item:IsA("Attachment")) then return end
-        local parent = item.Parent
-        if not dangerName(item.Name) and not (parent and dangerName(parent.Name)) then return end
-        local myCharacter = Player.Character
-        if myCharacter and item:IsDescendantOf(myCharacter) then return end
-        local now = os.clock()
-        if now - lastCheck < 0.015 then return end
-        lastCheck = now
-        local theirRoot = nearbyEnemyHRP()
-        if theirRoot then emergencyMove("major effect", theirRoot) end
-    end)
-end
-
-local function bindEnemyAnimations(opponent)
-    if opponent == Player then return end
-    local info = { connections = {} }
-    EnemyConnections[opponent] = info
-    local function clearTracks()
-        if info.trackConn then
-            info.trackConn:Disconnect()
-            info.trackConn = nil
-        end
-    end
-    local function onCharacter(character)
-        clearTracks()
-        task.spawn(function()
-            local hum = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 10)
-            if not hum or not Active or EnemyConnections[opponent] ~= info then return end
-            local animator = hum:FindFirstChildOfClass("Animator") or hum:WaitForChild("Animator", 8)
-            if not animator or not Active or EnemyConnections[opponent] ~= info then return end
-            info.trackConn = animator.AnimationPlayed:Connect(function(track)
-                tryEvadeFromAnimation(track, opponent)
-            end)
-        end)
-    end
-    info.spawnConn = opponent.CharacterAdded:Connect(onCharacter)
-    if opponent.Character then onCharacter(opponent.Character) end
-end
-
-local function unbindEnemyAnimations(opponent)
-    local info = EnemyConnections[opponent]
-    if not info then return end
-    for _, conn in ipairs(info.connections) do conn:Disconnect() end
-    if info.spawnConn then info.spawnConn:Disconnect() end
-    if info.trackConn then info.trackConn:Disconnect() end
-    EnemyConnections[opponent] = nil
-end
+-- AUTO EVADE removed in v15. No animation, effect, or damage listeners trigger TP.
+-- Manual SAFE ZONA (default OFF) remains a separate user-controlled feature.
 
 local function monitorHealth(character)
     if HealthConnection then HealthConnection:Disconnect(); HealthConnection = nil end
@@ -1217,11 +1101,7 @@ local function monitorHealth(character)
     local lastHealth = hum.Health
     HealthConnection = hum.HealthChanged:Connect(function(newHealth)
         checkHealth(newHealth)
-        local lost = lastHealth - newHealth
         lastHealth = newHealth
-        if CONFIG.EVADE_ENABLED and lost >= CONFIG.EVADE_DAMAGE_THRESHOLD and newHealth > 0 then
-            emergencyMove("heavy hit", nearbyEnemyHRP())
-        end
     end)
 
     DeathConnection = hum.Died:Connect(function()
@@ -1491,18 +1371,26 @@ local function RefreshPlayerList()
             ClickArea.Parent = PlayerEntry
 
             ClickArea.MouseButton1Click:Connect(function()
+                -- Selection must never wait for a follower tick or a UI refresh.
+                if StopRandomCycle then StopRandomCycle(true) end
                 if BackstabActive and StopBackstab then StopBackstab() end
                 if SelectedTarget == player then
                     SelectedTarget = nil
                     Checkmark.Visible = false
-                else
-                    SelectedTarget = player
-                    for _, data in pairs(PlayerButtons) do
-                        data.Checkmark.Visible = false
-                    end
-                    Checkmark.Visible = true
+                    UpdateStatus()
+                    return
                 end
+                SelectedTarget = player
+                for _, data in pairs(PlayerButtons) do
+                    data.Checkmark.Visible = false
+                end
+                Checkmark.Visible = true
+                -- The TP attempt happens synchronously on click, no task.wait.
+                local success = teleportToOpponent(player, CONFIG.BEHIND_STUDS)
                 UpdateStatus()
+                StatusLabel.Text = success
+                    and ("INSTANT TP attempted: " .. player.Name)
+                    or ("TARGET SELECTED; TP unavailable: " .. player.Name)
             end)
 
             PlayerButtons[player.Name] = {
@@ -1926,7 +1814,7 @@ local function acquireAimTarget()
     local char = best.Character
     if char then
         local outline = Instance.new("Highlight")
-        outline.Name = "ShadowV14AimOutline"
+        outline.Name = "ShadowV15AimOutline"
         outline.Adornee = char
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -1956,7 +1844,7 @@ local function updateAim()
         clearAimTarget()
         AimTarget = saved
         local outline = Instance.new("Highlight")
-        outline.Name = "ShadowV14AimOutline"
+        outline.Name = "ShadowV15AimOutline"
         outline.Adornee = saved.Character
         outline.FillTransparency = 1
         outline.OutlineTransparency = 0.06
@@ -2030,6 +1918,7 @@ local function StartBackstab()
 
     -- Execute the first teleport immediately on START, before notifications
     -- or other potentially expensive appearance work.
+    if StopRandomCycle then StopRandomCycle(false) end
     local firstTeleportOk = Positioner.teleport(true)
     if not firstTeleportOk then
         StatusLabel.Text = "TP not available: check character/target"
@@ -2091,6 +1980,353 @@ StopBackstab = function()
 end
 
 -- ============================================================
+-- ============================================================
+-- RANDOM GAROU CYCLE v15: targeting -> skill 1 -> skill 2 ->
+-- safe waiting point near map center Dummy -> cooldown -> repeat.
+-- Only ordinary local skill input is attempted (no invented server remotes).
+-- Server may reject teleports and skill activation; cooldowns are estimates.
+-- ============================================================
+local function setRandomStatus(message)
+    if not Active or not AutoStatus.Parent then return end
+    AutoStatus.Text = "RANDOM CYCLE: " .. tostring(message)
+end
+
+local function cycleValid(token)
+    return Active and RandomCycle.enabled and RandomCycle.token == token
+end
+
+local function cycleWait(token, duration)
+    local untilTime = os.clock() + math.max(0, duration)
+    while cycleValid(token) and os.clock() < untilTime do
+        task.wait(math.min(0.12, untilTime - os.clock()))
+    end
+    return cycleValid(token)
+end
+
+local function chooseCycleTarget()
+    local all, fresh = {}, {}
+    for _, candidate in ipairs(Players:GetPlayers()) do
+        if candidate ~= Player and isAlive(candidate) and getHRP(candidate) then
+            table.insert(all, candidate)
+            if candidate.UserId ~= RandomCycle.previousId then
+                table.insert(fresh, candidate)
+            end
+        end
+    end
+    local pool = (#fresh > 0) and fresh or all
+    if #pool == 0 then return nil end
+    return pool[math.random(1, #pool)]
+end
+
+local function flatDistance(a, b)
+    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+end
+
+-- Find the central Dummy dynamically. No hardcoded coordinates, since the
+-- arena can change. The center is a *waiting point*, not invulnerability.
+local cachedDummy, cachedDummyAt = nil, -math.huge
+local function centralDummyPosition()
+    if os.clock() - cachedDummyAt < 12 then return cachedDummy end
+    local bestPosition, bestXZ = nil, math.huge
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and string.find(string.lower(obj.Name), "dummy", 1, true)
+            and not Players:GetPlayerFromCharacter(obj) then
+            local part = obj:FindFirstChild("HumanoidRootPart") or obj.PrimaryPart
+            if not part then part = obj:FindFirstChildWhichIsA("BasePart") end
+            if part then
+                local p = part.Position
+                local d = math.sqrt(p.X * p.X + p.Z * p.Z)
+                if d < bestXZ then bestXZ, bestPosition = d, p end
+            end
+        end
+    end
+    cachedDummy, cachedDummyAt = bestPosition, os.clock()
+    return bestPosition
+end
+
+local function findGroundedRestPoint()
+    local char = Player.Character
+    local charRoot = getHRP(Player)
+    if not char or not charRoot then return nil end
+    local center = centralDummyPosition()
+    if not center then
+        -- Fallback is user's origin; never blindly teleport to 0,0,0.
+        local old = RandomCycle.savedOrigin
+        center = old and old.Position or charRoot.Position
+    end
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    params.FilterDescendantsInstances = {char}
+    params.IgnoreWater = true
+
+    local best, bestScore = nil, -math.huge
+    -- Test several rings around dummy to avoid collision with it and enemies.
+    for _, radius in ipairs({25, 36, 48, 62}) do
+        for j = 0, 7 do
+            local angle = j * math.pi / 4
+            local x, z = center.X + radius * math.cos(angle), center.Z + radius * math.sin(angle)
+            local hit = workspace:Raycast(Vector3.new(x, center.Y + 85, z), Vector3.new(0, -190, 0), params)
+            if hit and hit.Normal.Y > 0.67 and hit.Instance.CanCollide then
+                local pos = Vector3.new(x, hit.Position.Y + 3.8, z)
+                local nearest = math.huge
+                for _, enemy in ipairs(Players:GetPlayers()) do
+                    if enemy ~= Player and isAlive(enemy) then
+                        local eRoot = getHRP(enemy)
+                        if eRoot then nearest = math.min(nearest, flatDistance(pos, eRoot.Position)) end
+                    end
+                end
+                local score = math.min(nearest, 100) - radius * 0.15
+                if nearest >= CONFIG.RANDOM_SAFE_MIN_ENEMY_DISTANCE and score > bestScore then
+                    best, bestScore = pos, score
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function retreatToCenter()
+    local char = Player.Character
+    local root = getHRP(Player)
+    if not char or not root or not isAlive(Player) or root.Anchored then return false, "no character" end
+    local pos = findGroundedRestPoint()
+    if not pos then return false, "no safe ground found" end
+    local look = root.CFrame.LookVector
+    local forward = Vector3.new(look.X, 0, look.Z)
+    if forward.Magnitude < 0.1 then forward = Vector3.new(0, 0, -1) end
+    local ok = pcall(function()
+        char:PivotTo(CFrame.lookAt(pos, pos + forward.Unit))
+        root.AssemblyLinearVelocity = Vector3.zero
+        root.AssemblyAngularVelocity = Vector3.zero
+    end)
+    return ok, ok and "attempted" or "local TP failed"
+end
+
+-- Skill buttons in live TSB are controlled by the game; simulated key events
+-- and Tool activation are best-effort on Android / Delta. Never fire guessed
+-- RemoteEvents, claim server acceptance, or bypass actual cooldowns.
+local function tapMobileSkill(slot)
+    local ui = Player:FindFirstChildOfClass("PlayerGui")
+    if not ui then return false end
+    local expected = (slot == 1) and "flowing water" or "lethal whirlwind stream"
+    for _, item in ipairs(ui:GetDescendants()) do
+        if item:IsA("TextLabel") or item:IsA("TextButton") then
+            local name = string.lower(tostring(item.Text or ""))
+            if string.find(name, expected, 1, true) then
+                local node, visible = item, true
+                while node and node ~= ui do
+                    if node:IsA("GuiObject") and not node.Visible then
+                        visible = false
+                        break
+                    end
+                    if node:IsA("ScreenGui") and not node.Enabled then
+                        visible = false
+                        break
+                    end
+                    node = node.Parent
+                end
+                if visible and item.AbsoluteSize.X > 5 and item.AbsoluteSize.Y > 5 then
+                    local center = item.AbsolutePosition + item.AbsoluteSize * 0.5
+                    local x, y = math.floor(center.X), math.floor(center.Y)
+                    local ok = pcall(function()
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
+                        task.wait(0.065)
+                        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
+                    end)
+                    if ok then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
+local function attemptSkill(slot)
+    if not isAlive(Player) then return false end
+    if UserInputService.TouchEnabled and tapMobileSkill(slot) then return true end
+    local key = (slot == 1) and Enum.KeyCode.One or Enum.KeyCode.Two
+    local keySucceeded = false
+    local downOk = pcall(function()
+        VirtualInputManager:SendKeyEvent(true, key, false, game)
+    end)
+    if downOk then
+        task.wait(0.07)
+        keySucceeded = pcall(function()
+            VirtualInputManager:SendKeyEvent(false, key, false, game)
+        end)
+    end
+    if keySucceeded then return true end
+
+    -- Some games represent moves as Tools instead of keyboard bindings.
+    local char = Player.Character
+    local bag = Player:FindFirstChildOfClass("Backpack")
+    local expected = (slot == 1) and "flowing water" or "lethal whirlwind stream"
+    local tool = nil
+    for _, parent in ipairs({char, bag}) do
+        if parent then
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("Tool") and
+                    (string.lower(child.Name) == expected or child.Name == tostring(slot)) then
+                    tool = child
+                    break
+                end
+            end
+        end
+        if tool then break end
+    end
+    if tool then
+        return pcall(function()
+            if tool.Parent ~= char then
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then hum:EquipTool(tool) end
+            end
+            tool:Activate()
+        end)
+    end
+    return false
+end
+
+StopRandomCycle = function(updateStatus)
+    if RandomCycle.enabled then
+        RandomCycle.enabled = false
+        RandomCycle.token = RandomCycle.token + 1
+    end
+    RandomCycle.phase = "off"
+    RandomCycle.target = nil
+    AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+    AutoStopButton.BackgroundColor3 = Color3.fromRGB(151, 42, 54)
+    if updateStatus ~= false then setRandomStatus("STOPPED") end
+end
+
+StartRandomCycle = function()
+    if RandomCycle.enabled or not Active then return end
+    if not isAlive(Player) or not getHRP(Player) then
+        setRandomStatus("character unavailable")
+        return
+    end
+    -- No two separate features may fight over character CFrame.
+    if BackstabActive and StopBackstab then StopBackstab() end
+    if TrashAutoEnabled or TrashBusy then
+        setRandomStatus("stop TRASH AUTO and wait for pickup first")
+        return
+    end
+    if SafeTriggered then
+        setRandomStatus("disable active SAFE ZONA first")
+        return
+    end
+    if CONFIG.SAFE_ZONE then
+        CONFIG.SAFE_ZONE = false
+        paintToggle(SafeToggle, "SAVE ZONA", false)
+    end
+
+    RandomCycle.savedOrigin = getHRP(Player).CFrame
+    RandomCycle.enabled = true
+    RandomCycle.token = RandomCycle.token + 1
+    local token = RandomCycle.token
+    RandomCycle.previousId = nil
+    RandomCycle.readyAt = {[1] = 0, [2] = 0}
+    RandomCycle.phase = "starting"
+    AutoStartButton.BackgroundColor3 = Color3.fromRGB(12, 96, 73)
+    AutoStopButton.BackgroundColor3 = Color3.fromRGB(190, 39, 48)
+    setRandomStatus("STARTING | 1 → 2 → central Dummy")
+
+    task.spawn(function()
+        while cycleValid(token) do
+            if not isAlive(Player) or not getHRP(Player) then
+                setRandomStatus("respawn needed; stopped")
+                StopRandomCycle(false)
+                break
+            end
+            local nextReady = math.max(RandomCycle.readyAt[1], RandomCycle.readyAt[2])
+            local seconds = math.max(0, nextReady - os.clock())
+            if seconds > 0 then
+                RandomCycle.phase = "cooldown"
+                setRandomStatus("CD 1+2: " .. math.ceil(seconds) .. "s | waiting by Dummy")
+                if not cycleWait(token, math.min(seconds, 0.75)) then break end
+            else
+                local opponent = chooseCycleTarget()
+                if not opponent then
+                    RandomCycle.phase = "no target"
+                    setRandomStatus("No live players; waiting")
+                    if not cycleWait(token, 1.0) then break end
+                else
+                    RandomCycle.phase = "target"
+                    RandomCycle.target = opponent
+                    RandomCycle.previousId = opponent.UserId
+                    setRandomStatus("TP → @" .. opponent.Name)
+                    local moved = teleportToOpponent(opponent, CONFIG.RANDOM_TARGET_RANGE)
+                    if not moved then
+                        setRandomStatus("TP attempt unavailable; next target")
+                        if not cycleWait(token, 0.55) then break end
+                    else
+                        if not cycleWait(token, 0.18) then break end
+                        if not isAlive(opponent) then
+                            setRandomStatus("Target unavailable; next")
+                        else
+                            RandomCycle.phase = "skill 1"
+                            local a = CONFIG.RANDOM_AUTOUSE and attemptSkill(1)
+                            if not cycleValid(token) then break end
+                            if CONFIG.RANDOM_AUTOUSE and not a then
+                                setRandomStatus("Skill 1 input unavailable on Delta; STOP")
+                                StopRandomCycle(false)
+                                break
+                            end
+                            RandomCycle.readyAt[1] = os.clock() + CONFIG.RANDOM_CD1
+                            setRandomStatus(CONFIG.RANDOM_AUTOUSE and "Skill 1 sent; waiting for 2" or "Use skill 1 manually")
+                            if not cycleWait(token, CONFIG.RANDOM_GAP_1_TO_2) then break end
+                            RandomCycle.phase = "skill 2"
+                            -- Skill 1 may have moved both fighters; re-aim before skill 2.
+                            if not isAlive(Player) then break end
+                            if isAlive(opponent) then
+                                teleportToOpponent(opponent, CONFIG.RANDOM_TARGET_RANGE)
+                            end
+                            local b = CONFIG.RANDOM_AUTOUSE and attemptSkill(2)
+                            if not cycleValid(token) then break end
+                            if CONFIG.RANDOM_AUTOUSE and not b then
+                                setRandomStatus("Skill 2 input unavailable on Delta; STOP")
+                                StopRandomCycle(false)
+                                break
+                            end
+                            RandomCycle.readyAt[2] = os.clock() + CONFIG.RANDOM_CD2
+                            setRandomStatus(CONFIG.RANDOM_AUTOUSE and "Skill 2 sent → retreat" or "Use skill 2 manually")
+                            if not cycleWait(token, CONFIG.RANDOM_POST_2) then break end
+                            RandomCycle.phase = "retreat"
+                            local safeOK, reason = retreatToCenter()
+                            setRandomStatus(safeOK and "TP to Dummy area attempted; cooldown" or
+                                ("Retreat unavailable: " .. reason))
+                            if not cycleWait(token, 0.3) then break end
+                        end
+                    end
+                end
+            end
+        end
+        if Active and not RandomCycle.enabled then
+            AutoStartButton.BackgroundColor3 = Color3.fromRGB(17, 143, 89)
+        end
+    end)
+end
+
+AutoStartButton.MouseButton1Click:Connect(StartRandomCycle)
+AutoStopButton.MouseButton1Click:Connect(function() StopRandomCycle(true) end)
+AutoCastToggle.MouseButton1Click:Connect(function()
+    CONFIG.RANDOM_AUTOUSE = not CONFIG.RANDOM_AUTOUSE
+    paintToggle(AutoCastToggle, "AUTO CAST 1+2", CONFIG.RANDOM_AUTOUSE)
+    if not RandomCycle.enabled then
+        setRandomStatus(CONFIG.RANDOM_AUTOUSE and "automatic skill input ON" or
+            "manual skills mode (uses approximate timers)")
+    end
+end)
+for slot, input in ipairs({SkillCD1Input, SkillCD2Input}) do
+    input.FocusLost:Connect(function()
+        local value = tonumber(input.Text)
+        if value and value == value and value > 0 and value < 300 then
+            value = math.clamp(math.floor(value + 0.5), 5, 90)
+            if slot == 1 then CONFIG.RANDOM_CD1 = value else CONFIG.RANDOM_CD2 = value end
+        end
+        input.Text = tostring(slot == 1 and CONFIG.RANDOM_CD1 or CONFIG.RANDOM_CD2)
+    end)
+end
+
 -- BUTTON CONNECTIONS
 -- ============================================================
 -- Speed input applies only on focus loss; avoids per-keystroke writes.
@@ -2126,6 +2362,7 @@ DistanceInput.FocusLost:Connect(function()
 end)
 
 TpOnceButton.MouseButton1Click:Connect(function()
+    if StopRandomCycle then StopRandomCycle(false) end
     if not SelectedTarget then
         StatusLabel.Text = "Select a player first"
         return
@@ -2135,6 +2372,7 @@ TpOnceButton.MouseButton1Click:Connect(function()
 end)
 
 RandomTPButton.MouseButton1Click:Connect(function()
+    if StopRandomCycle then StopRandomCycle(false) end
     local other = chooseRandomOpponent()
     if not other then
         StatusLabel.Text = "No alive players for random TP"
@@ -2154,8 +2392,14 @@ ThrowInput.FocusLost:Connect(function()
     ThrowInput.Text = tostring(CONFIG.TRASH_THROW_SPEED)
 end)
 
-TrashAutoButton.MouseButton1Click:Connect(trashCycle)
-TrashReturnButton.MouseButton1Click:Connect(trashReturnOnce)
+TrashAutoButton.MouseButton1Click:Connect(function()
+    if StopRandomCycle then StopRandomCycle(true) end
+    trashCycle()
+end)
+TrashReturnButton.MouseButton1Click:Connect(function()
+    if StopRandomCycle then StopRandomCycle(true) end
+    trashReturnOnce()
+end)
 
 -- 20 Hz local speed assistance; writes may be rejected / corrected by game.
 
@@ -2171,10 +2415,6 @@ SpeedLoopConnection = RunService.Heartbeat:Connect(function(dt)
     end
 end)
 
-for _, opponent in ipairs(Players:GetPlayers()) do
-    bindEnemyAnimations(opponent)
-end
-bindMajorEffectDetection()
 
 StartButton.MouseButton1Click:Connect(StartBackstab)
 StopButton.MouseButton1Click:Connect(StopBackstab)
@@ -2219,28 +2459,16 @@ ResetToggle.MouseButton1Click:Connect(function()
 end)
 
 CloseButton.MouseButton1Click:Connect(function()
-    -- Return before shutting down, rather than leaving an evading character away.
-    if Evading and EvadeReturnCFrame then
-        local c = Player.Character
-        if c and getHRP(Player) and isAlive(Player) then
-            pcall(function() c:PivotTo(EvadeReturnCFrame) end)
-        end
-    end
+    if StopRandomCycle then StopRandomCycle(false) end
     Active = false
     stopTrash()
     setAimEnabled(false)
     pcall(function() RunService:UnbindFromRenderStep(AimRenderName) end)
     pcall(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
     if TrashIndexConnection then TrashIndexConnection:Disconnect() end
-    CONFIG.EVADE_ENABLED = false
-    EvadeToken = EvadeToken + 1
-    Evading = false
-    EvadeReturnCFrame = nil
     CONFIG.SPEED_ENABLED = false
     releaseSpeed()
     if SpeedLoopConnection then SpeedLoopConnection:Disconnect(); SpeedLoopConnection = nil end
-    if EffectConnection then EffectConnection:Disconnect(); EffectConnection = nil end
-    for opponent in pairs(EnemyConnections) do unbindEnemyAnimations(opponent) end
     StopBackstab()
     removeSafeZone(true)
     Invisibility.remove()
@@ -2261,13 +2489,11 @@ end)
 -- PLAYER JOIN / LEAVE
 -- ============================================================
 table.insert(CleanupConnections, Players.PlayerAdded:Connect(function(newPlayer)
-    if Active then bindEnemyAnimations(newPlayer) end
-    task.wait(0.5)
     RefreshPlayerList()
 end))
 
 table.insert(CleanupConnections, Players.PlayerRemoving:Connect(function(player)
-    unbindEnemyAnimations(player)
+    if RandomCycle.target == player then RandomCycle.target = nil end
     if AimTarget == player then clearAimTarget() end
     if SelectedTarget == player then
         if BackstabActive and StopBackstab then StopBackstab() end
@@ -2282,10 +2508,8 @@ end))
 -- RESPAWN
 -- ============================================================
 CharacterConnection = Player.CharacterAdded:Connect(function(character)
+    if StopRandomCycle then StopRandomCycle(false) end
     if BackstabActive and StopBackstab then StopBackstab() end
-    EvadeToken = EvadeToken + 1
-    Evading = false
-    EvadeReturnCFrame = nil
     -- Keep the long-running AUTO toggle armed across respawns.
     if not TrashAutoEnabled then
         TrashToken = TrashToken + 1
@@ -2330,4 +2554,4 @@ end
 -- ============================================================
 RefreshPlayerList()
 UpdateStatus()
-Message("GRINGO XP SHADOW TSB", "v14: stable move + target face + verified trash", 3)
+Message("GRINGO XP SHADOW TSB", "v15: instant TP + Garou 1/2 random cycle (no auto evade)", 4)
