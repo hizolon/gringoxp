@@ -1,4 +1,4 @@
--- TSB_DELTA_v32 | one-click external INVIS loader; model-following cyan AIM highlight.
+-- TSB_DELTA_v33 | one-click external INVIS loader; model-following cyan AIM highlight.
 -- Target-only positioner; no automatic target selection.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- Cyan AIM glow follows the actual target character (no screen-aligned square).
@@ -37,7 +37,7 @@ local CONFIG = {
     SAFE_HEIGHT = 130,
 
     PING_COMPENSATE = true, -- optional short prediction of moving targets
-    MAX_LEAD_TIME = 0.065,
+    MAX_LEAD_TIME = 0.12,
 
     SPEED_ENABLED = false,
     SPEED_VALUE = 42,
@@ -305,7 +305,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V32_SHUTDOWN", "__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
+    for _, key in ipairs({"__TSB_DELTA_V33_SHUTDOWN", "__TSB_DELTA_V32_SHUTDOWN", "__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -320,7 +320,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v32" or gui.Name == "TSB_DELTA_v31" or gui.Name == "TSB_DELTA_v30" or gui.Name == "TSB_DELTA_AIM_OVERLAY") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v33" or gui.Name == "TSB_DELTA_v32" or gui.Name == "TSB_DELTA_v31" or gui.Name == "TSB_DELTA_v30" or gui.Name == "TSB_DELTA_AIM_OVERLAY") then
                 gui:Destroy()
             end
         end
@@ -328,7 +328,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_DELTA_v32"
+ScreenGui.Name = "TSB_DELTA_v33"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -387,7 +387,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB_DELTA_v32"
+Title.Text = "TSB_DELTA_v33"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 13
@@ -643,7 +643,7 @@ do
 -- Compact mobile panel, three pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB_DELTA_v32"
+Title.Text = "TSB_DELTA_v33"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -1138,9 +1138,9 @@ local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V32"
+local AimRenderName = "TSB_DELTA_AIM_V33"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V32"
+local MoveRenderName = "TSB_DELTA_MOVE_V33"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1210,7 +1210,7 @@ end
 local function isAlive(plr)
     if not plr or not plr.Character then return false end
     local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-    return hum and hum.Health > 0
+    return hum ~= nil and hum.Health > 0 and hum:GetState() ~= Enum.HumanoidStateType.Dead
 end
 
 local function getHRP(plr)
@@ -1697,9 +1697,11 @@ function Positioner.getBehindCFrame(targetHRP, distance)
         local velocity = targetHRP.AssemblyLinearVelocity
         local flatVel = Vector3.new(velocity.X, 0, velocity.Z)
         local ping = math.clamp(getPing(), 0, 300)
-        local leadTime = math.clamp(ping / 1000 * 0.65 + 0.018, 0, CONFIG.MAX_LEAD_TIME)
+        -- Network prediction is capped. Avoid extrapolating a fast dash across
+        -- the arena; the server still decides collision and melee hit range.
+        local leadTime = math.clamp(ping / 1000 * 0.75 + 0.025, 0, CONFIG.MAX_LEAD_TIME)
         local lead = flatVel * leadTime
-        if lead.Magnitude > 3 then lead = lead.Unit * 3 end
+        if lead.Magnitude > 4.5 then lead = lead.Unit * 4.5 end
         pos = pos + lead
     end
     local destination = pos - flatLook * studs
@@ -2043,8 +2045,21 @@ end
 -- AIM: manual screen-center acquisition; camera + avatar track only that player.
 -- The circle can be dragged without changing the target or toggling AIM.
 -- ============================================================
+local AimTargetCharacter = nil
+local AimTargetHealthConnection = nil
+local AimTargetDeathConnection = nil
+local AimTargetRemovingConnection = nil
+local function disconnectAimTargetSignals()
+    if AimTargetHealthConnection then AimTargetHealthConnection:Disconnect(); AimTargetHealthConnection = nil end
+    if AimTargetDeathConnection then AimTargetDeathConnection:Disconnect(); AimTargetDeathConnection = nil end
+    if AimTargetRemovingConnection then AimTargetRemovingConnection:Disconnect(); AimTargetRemovingConnection = nil end
+end
+
 local function clearAimTarget()
+    -- Death is a complete unlock, not a pause until character respawns.
+    disconnectAimTargetSignals()
     AimTarget = nil
+    AimTargetCharacter = nil
     refreshAimHighlight()
     AimHud.BackgroundColor3 = Color3.fromRGB(91, 96, 107)
     AimHudStroke.Color = Color3.fromRGB(176, 183, 197)
@@ -2072,8 +2087,31 @@ local function acquireAimTarget()
         end
     end
     if not nearest then return false end
-    -- One-time acquisition. Never change until AIM OFF or manual unlock.
+    -- Lock only the current *living* character. Never relock automatically on respawn.
+    local character = nearest.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if not humanoid or humanoid.Health <= 0 then return false end
+    clearAimTarget()
     AimTarget = nearest
+    AimTargetCharacter = character
+    AimTargetHealthConnection = humanoid.HealthChanged:Connect(function(health)
+        if health <= 0 and AimTarget == nearest then
+            clearAimTarget()
+            StatusLabel.Text = "AIM: цель погибла, захват сброшен"
+        end
+    end)
+    AimTargetDeathConnection = humanoid.Died:Connect(function()
+        if AimTarget == nearest then
+            clearAimTarget()
+            StatusLabel.Text = "AIM: цель погибла, захват сброшен"
+        end
+    end)
+    AimTargetRemovingConnection = nearest.CharacterRemoving:Connect(function(removed)
+        if AimTarget == nearest and removed == character then
+            clearAimTarget()
+            StatusLabel.Text = "AIM: персонаж исчез, захват сброшен"
+        end
+    end)
     refreshAimHighlight()
     AimHud.BackgroundColor3 = Color3.fromRGB(20, 127, 110)
     AimHudStroke.Color = Color3.fromRGB(118, 244, 195)
@@ -2107,7 +2145,12 @@ end
 
 local function updateAim()
     if not Active then return end
-    refreshAimHighlight() -- also reattaches automatically after the enemy respawns
+    -- Guard even if a Died signal was missed by the engine or a custom rig.
+    if AimTarget and (not isAlive(AimTarget) or AimTarget.Character ~= AimTargetCharacter) then
+        clearAimTarget()
+        StatusLabel.Text = "AIM: цель недоступна, захват сброшен"
+    end
+    refreshAimHighlight()
     refreshRotationLock()
     -- A fixed manual lock always takes priority; follow cannot steal it.
     if CONFIG.AIM_ENABLED and AimTarget then
@@ -2131,8 +2174,8 @@ local function updateAim()
             Positioner.faceTarget(root)
             return
         end
-        -- Preserve same player through temporary ragdoll / respawn.
-        -- We never silently select another opponent.
+        -- Invalid humanoid cannot remain locked. Only a fresh tap may acquire.
+        clearAimTarget()
         return
     end
     -- Without a manual lock, TP modes can orient the avatar as before.
@@ -2178,7 +2221,7 @@ RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10
 -- START / STOP: zero artificial cooldown; frame-driven tracking.
 -- Moving local CFrame cannot extend melee range or override the server.
 -- ============================================================
-local FollowRenderName = "TSB_DELTA_FOLLOW_V32"
+local FollowRenderName = "TSB_DELTA_FOLLOW_V33"
 local FollowAttackConnection = nil
 local FollowAnimationConnection = nil
 local FollowAnimCharacter = nil
@@ -2272,13 +2315,14 @@ StartBackstab = function()
     StatusLabel.Text=moved and "TP запущен: слежение без задержки" or "TP: "..tostring(reason)
     StatusLabel.TextColor3=moved and Color3.fromRGB(109,244,169) or Color3.fromRGB(255,182,105)
 
-    -- Two engine-native update phases, no task.wait or custom cooldown.
-    -- Physics/network replication can still introduce latency or position correction.
-    PositionConnection=RunService.Heartbeat:Connect(function()
-        if BackstabActive then pcall(runFollowTick, false) end
-    end)
-    RunService:BindToRenderStep(FollowRenderName,Enum.RenderPriority.Character.Value-1,function()
-        if BackstabActive then pcall(runFollowTick, false) end
+    -- One PreSimulation tick per frame avoids two competing position writes.
+    -- START itself teleports immediately above (no sleep/cooldown).
+    -- Roblox may still rollback non-authoritative positions.
+    PositionConnection=RunService.PreSimulation:Connect(function()
+        if BackstabActive then
+            local ok, err = pcall(runFollowTick, false)
+            if not ok then followLastError = tostring(err) end
+        end
     end)
     FollowAttackConnection=UserInputService.InputBegan:Connect(function(input, processed)
         if not BackstabActive or processed then return end
@@ -2604,25 +2648,37 @@ SafeToggle.Activated:Connect(function()
     paintToggle(SafeToggle, "SAVE ZONA", CONFIG.SAFE_ZONE)
 end)
 
--- INVIS: single menu button, one literal user-provided command.
--- No built-in invisibility, no floating launcher, no retry/mirror system.
+-- INVIS: button triggers the exact user-provided one-liner, without altering
+-- the external loader or creating any second INV UI. HTTP is outside our control.
+local InvisLaunching = false
 InvisLaunchButton.Activated:Connect(function()
     if not Active or closing then return end
-    InvisStatus.Text = "INVIS: выполняю внешний скрипт..."
-    InvisLaunchButton.Text = "▶ ЗАПУСТИТЬ INVIS"
-    local success, problem = pcall(function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
-    end)
-    if not Active or closing then return end
-    if success then
-        InvisStatus.Text = "INVIS: команда выполнена. Интерфейс создаётся внешним скриптом."
-        InvisStatus.TextColor3 = Color3.fromRGB(130, 231, 205)
-    else
-        local reason = tostring(problem):gsub("[\r\n]+", " ")
-        InvisStatus.Text = ("INVIS: ошибка: " .. reason):sub(1, 180)
-        InvisStatus.TextColor3 = Color3.fromRGB(255, 163, 144)
-        warn("[TSB_DELTA_v32/INVIS] " .. reason)
+    if InvisLaunching then
+        InvisStatus.Text = "INVIS: загрузка уже идёт. Следи за сообщением."
+        return
     end
+    InvisLaunching = true
+    InvisStatus.Text = "INVIS: запуск ссылки Airbornite..."
+    InvisStatus.TextColor3 = Color3.fromRGB(208, 230, 255)
+    InvisLaunchButton.Text = "⌛ ЗАПУСК INVIS..."
+    task.spawn(function()
+        local success, problem = pcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
+        end)
+        InvisLaunching = false
+        if not Active or closing then return end
+        InvisLaunchButton.Text = "▶ ЗАПУСТИТЬ INVIS"
+        if success then
+            -- An external loader returning successfully does not prove invisibility.
+            InvisStatus.Text = "INVIS: загрузчик выполнен; управление — во внешнем скрипте."
+            InvisStatus.TextColor3 = Color3.fromRGB(130, 231, 205)
+        else
+            local reason = tostring(problem):gsub("[\r\n]+", " ")
+            InvisStatus.Text = ("INVIS: ошибка: " .. reason):sub(1, 180)
+            InvisStatus.TextColor3 = Color3.fromRGB(255, 163, 144)
+            warn("[TSB_DELTA_v33/INVIS] " .. reason)
+        end
+    end)
 end)
 
 ResetToggle.Activated:Connect(function()
@@ -2645,6 +2701,7 @@ Shutdown = function()
     performanceStatusRunning = false
     safe(Visual.stop)
     safe(function() setAimEnabled(false) end)
+    safe(disconnectAimTargetSignals)
     safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
     safe(function() AimHighlight:Destroy() end)
     safe(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
@@ -2670,12 +2727,12 @@ Shutdown = function()
     for _, conn in ipairs(CleanupConnections) do
         if conn then safe(function() conn:Disconnect() end) end
     end
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V33_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V33_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V33_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
