@@ -1,5 +1,5 @@
 --[[
-    TSB DELTA v36 | COMPACT CONTROL EDITION
+    TSB DELTA v37 | MOTION CORE EDITION
     Keeps the v33/v34 controls without their overlapping movement/render loops.
     Local-only client script (executor with loadstring + HttpGet for external modules).
     Teleport, damage, and actual invisibility are subject to server authority.
@@ -20,7 +20,7 @@ if not LocalPlayer then return end
 local env
 pcall(function() if type(getgenv) == "function" then env = getgenv() end end)
 if type(env) ~= "table" then env = _G end
-for _, k in ipairs({"__TSB_DELTA_V36_SHUTDOWN", "__TSB_DELTA_V35_SHUTDOWN", "__TSB_DELTA_V34_SHUTDOWN", "__TSB_DELTA_V33_SHUTDOWN",
+for _, k in ipairs({"__TSB_DELTA_V37_SHUTDOWN", "__TSB_DELTA_V36_SHUTDOWN", "__TSB_DELTA_V35_SHUTDOWN", "__TSB_DELTA_V34_SHUTDOWN", "__TSB_DELTA_V33_SHUTDOWN",
     "__TSB_DELTA_V32_SHUTDOWN", "__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN",
     "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN",
     "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN"}) do
@@ -36,7 +36,7 @@ for _, suffix in ipairs({"V33", "V32", "V31", "V30", "V29", "V28", "V27", "V26"}
 end
 -- If a previous build crashed before installing its cleanup callback,
 -- still clear all known bindings before registering this build.
-for _, ver in ipairs({"v35", "v36"}) do
+for _, ver in ipairs({"v35", "v36", "v37"}) do
     pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_" .. ver .. "_Follow") end)
     pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_" .. ver .. "_Aim") end)
 end
@@ -66,7 +66,7 @@ end
 local SET = {
     distance = 3.0, aim = false, lead = true, ss = false,
     speed = false, speedValue = 42, safe = false, safeThreshold = 30,
-    reset = false, wall = false, fps = true, culling = false, radius = 160,
+    reset = false, wall = false, fps = false, culling = false, radius = 160,
 }
 local state = {
     target = nil, follow = false, resumeFollow = false, aimTarget = nil,
@@ -114,7 +114,7 @@ local function toggleLook(button, title, on)
 end
 local function notify(text)
     pcall(function()
-        StarterGui:SetCore("SendNotification", {Title = "TSB DELTA v36", Text = tostring(text):sub(1, 160), Duration = 5})
+        StarterGui:SetCore("SendNotification", {Title = "TSB DELTA v37", Text = tostring(text):sub(1, 160), Duration = 5})
     end)
 end
 
@@ -129,7 +129,7 @@ if not uiParent then
     if ok then uiParent = CoreGui end
 end
 if not uiParent then uiParent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 8) end
-if not uiParent then error("TSB v36: UI parent unavailable") end
+if not uiParent then error("TSB v37: UI parent unavailable") end
 for _, rootGui in ipairs({CoreGui, LocalPlayer:FindFirstChildOfClass("PlayerGui"), uiParent}) do
     if rootGui then
         pcall(function()
@@ -143,7 +143,7 @@ for _, rootGui in ipairs({CoreGui, LocalPlayer:FindFirstChildOfClass("PlayerGui"
     end
 end
 local gui = clean:own(Instance.new("ScreenGui"))
-gui.Name = "TSB_DELTA_v36"
+gui.Name = "TSB_DELTA_v37"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true
 gui.DisplayOrder = 153
@@ -152,7 +152,7 @@ gui.Parent = uiParent
 local cam = workspace.CurrentCamera
 local view = cam and cam.ViewportSize or Vector2.new(430, 780)
 -- Compact profile: maximum 305 px wide, height constrained by available viewport.
-local W = math.clamp(view.X - 24, 220, 305)
+local W = math.clamp(view.X - 24, 218, 294)
 local H = math.clamp(view.Y - 35, 295, 460)
 local function create(class, parent, props)
     local o = Instance.new(class)
@@ -209,7 +209,7 @@ create("UIGradient", titlebar, {
     Color = ColorSequence.new(Color3.fromRGB(23, 62, 100), Color3.fromRGB(16, 39, 65)),
     Rotation = 0,
 })
-local title = label(titlebar, "⠿  TSB DELTA  /  v36", 0, 37, 12)
+local title = label(titlebar, "⠿  TSB DELTA  /  v37", 0, 37, 12)
 title.Position = UDim2.fromOffset(10, 0)
 title.Size = UDim2.new(1, -87, 0, 37)
 title.TextColor3 = Color3.fromRGB(162, 235, 254)
@@ -261,61 +261,62 @@ end
 for i, tb in ipairs(tabsBtns) do clean:connect(tb.Activated, function() showPage(i) end) end
 showPage(1)
 
--- TARGET PAGE: select only; movement begins ONLY after START.
-label(pages[1], "ИГРОКИ  •  ВЫБЕРИ ЦЕЛЬ", 5, 26, 11).TextColor3 = C.white
+-- TARGET PAGE: target only, START begins movement, zero automatic TP on selection.
+label(pages[1], "ИГРОКИ", 4, 20, 11).TextColor3 = C.white
 UI.roster = create("ScrollingFrame", pages[1], {
-    Name = "Roster", Position = UDim2.fromOffset(8, 36),
-    Size = UDim2.new(1, -16, 0, 190), BackgroundColor3 = C.bg,
+    Name = "Roster", Position = UDim2.fromOffset(8, 27),
+    Size = UDim2.new(1, -16, 0, 183), BackgroundColor3 = C.bg,
     BorderSizePixel = 0, ScrollBarThickness = 3,
     ScrollBarImageColor3 = C.blue, CanvasSize = UDim2.fromOffset(0, 0),
 })
 corner(UI.roster, 8)
-UI.start = button(pages[1], "▶  START • FOLLOW", 236, 42, C.green)
-UI.stop = button(pages[1], "■  STOP", 285, 34, C.red)
-UI.once = button(pages[1], "⚡  TP ONCE", 325, 34, C.blue)
-label(pages[1], "ДИСТАНЦИЯ СЗАДИ (2.3–8 studs)", 366, 29)
-UI.dist = input(pages[1], SET.distance, 399, "3.0")
-UI.lead = button(pages[1], "", 442, 34)
-UI.ss = button(pages[1], "", 482, 34)
-label(pages[1], "Выбор не перемещает. START запускает TP и FOLLOW. " ..
-    "Фактическое положение и попадания определяет сервер Roblox.", 523, 66)
-pages[1].CanvasSize = UDim2.fromOffset(0, 600)
+UI.start = button(pages[1], "▶  START", 220, 42, C.green)
+UI.stop = button(pages[1], "■  STOP", 267, 34, C.red)
+UI.once = button(pages[1], "⚡  TP ONCE", 306, 34, C.blue)
+label(pages[1], "ДИСТАНЦИЯ", 348, 32, 11)
+UI.dist = input(pages[1], SET.distance, 348, "3.0")
+UI.lead = button(pages[1], "", 390, 35)
+UI.ss = button(pages[1], "", 432, 35)
+pages[1].CanvasSize = UDim2.fromOffset(0, 481)
 
--- FEATURES PAGE
-UI.invis = button(pages[2], "▶ INVIS • AIRBORNITE", 12, 43, C.blue)
-UI.invisStatus = label(pages[2], "INVIS не запускался", 62, 67)
-UI.aim = button(pages[2], "", 146, 40)
-label(pages[2], "AIM включается БЕЗ цели. Выбери игрока и нажми ◎ для захвата. " ..
-    "Захват сохраняется при смене персонажа в дуэли.", 194, 60)
-UI.speed = button(pages[2], "", 267, 37)
-label(pages[2], "СКОРОСТЬ (8–120)", 309, 30)
-UI.speedInput = input(pages[2], SET.speedValue, 345, "42")
-UI.safe = button(pages[2], "", 394, 36)
-UI.reset = button(pages[2], "", 438, 36)
-UI.fps = button(pages[2], "", 485, 41, C.green)
+-- FEATURE PAGE: no explanatory text under functions.
+label(pages[2], "БОЙ", 4, 22, 11).TextColor3 = C.white
+UI.aim = button(pages[2], "", 29, 41)
+label(pages[2], "УТИЛИТЫ", 78, 22, 11).TextColor3 = C.white
+UI.invis = button(pages[2], "▶ INVIS • AIRBORNITE", 104, 40, C.blue)
+UI.speed = button(pages[2], "", 152, 36)
+label(pages[2], "СКОРОСТЬ", 198, 33, 11)
+UI.speedInput = input(pages[2], SET.speedValue, 198, "42")
+UI.safe = button(pages[2], "", 239, 35)
+UI.reset = button(pages[2], "", 280, 35)
+label(pages[2], "ГРАФИКА", 323, 22, 11).TextColor3 = C.white
+UI.fps = button(pages[2], "", 351, 42, C.green)
 create("UIStroke", UI.fps, {Color = Color3.fromRGB(71, 237, 191), Thickness = 1.4})
-UI.fpsStatus = label(pages[2], "FPS: инициализация...", 536, 82)
-pages[2].CanvasSize = UDim2.fromOffset(0, 650)
+pages[2].CanvasSize = UDim2.fromOffset(0, 405)
 
--- EXTRA PAGE
-UI.wall = button(pages[3], "", 13, 38)
-UI.coord = button(pages[3], "TP К КООРДИНАТАМ Y=-10000", 59, 39, C.blue)
-label(pages[3], "Координатный режим может привести к падению и откату сервером.", 105, 52)
-UI.culling = button(pages[3], "", 173, 39)
-label(pages[3], "РАДИУС ДЕКОРА (80–300)", 221, 30)
-UI.radius = input(pages[3], SET.radius, 255, "160")
-UI.hkg = button(pages[3], "▶ HKG VOID", 307, 40, C.blue)
-UI.hkgStatus = label(pages[3], "Внешний модуль не запускался", 351, 58)
-UI.danger = button(pages[3], "☠  DANGER CORE  •  EXECUTE", 427, 52, C.red)
+-- EXTRA PAGE: grouped by purpose; no redundant descriptions.
+label(pages[3], "ПЕРЕМЕЩЕНИЕ", 4, 22, 11).TextColor3 = C.white
+UI.wall = button(pages[3], "", 31, 36)
+UI.coord = button(pages[3], "TP К КООРДИНАТАМ", 76, 38, C.blue)
+label(pages[3], "ОПТИМИЗАЦИЯ", 122, 23, 11).TextColor3 = C.white
+UI.culling = button(pages[3], "", 149, 36)
+label(pages[3], "РАДИУС", 193, 33, 11)
+UI.radius = input(pages[3], SET.radius, 193, "160")
+label(pages[3], "ВНЕШНИЕ МОДУЛИ", 241, 22, 11).TextColor3 = C.white
+UI.hkg = button(pages[3], "▶ HKG VOID", 269, 40, C.blue)
+UI.danger = button(pages[3], "☠  DANGER CORE  •  EXECUTE", 317, 51, C.red)
 create("UIStroke", UI.danger, {Color = Color3.fromRGB(255, 112, 148), Thickness = 1.6})
 create("UIGradient", UI.danger, {
     Color = ColorSequence.new(Color3.fromRGB(233, 81, 123), Color3.fromRGB(124, 27, 64)),
     Rotation = 0,
 })
-UI.dangerStatus = label(pages[3], "Внешний модуль не запускался. Запускай на свой риск.", 488, 67)
-label(pages[3], "Все внешние модули запускаются только по кнопке. " ..
-    "FPS Ultra меняет только локальную графику.", 566, 64)
-pages[3].CanvasSize = UDim2.fromOffset(0, 674)
+pages[3].CanvasSize = UDim2.fromOffset(0, 382)
+
+-- Status messages use the single one-line bar above tabs, not sublabels.
+UI.invisStatus = UI.status
+UI.hkgStatus = UI.status
+UI.dangerStatus = UI.status
+UI.fpsStatus = {Text = ""}
 
 -- Floating controls: no per-frame UI work and one global pointer handler.
 local dock = button(gui, "≡", 0, 44, C.blue)
@@ -330,7 +331,7 @@ aimHud.Position = UDim2.fromOffset(14, 112)
 aimHud.TextSize = 26
 aimHud.Visible = false
 local hilite = clean:own(Instance.new("Highlight"))
-hilite.Name = "TSB_DELTA_v36_AimHighlight"
+hilite.Name = "TSB_DELTA_v37_AimHighlight"
 hilite.DepthMode = Enum.HighlightDepthMode.Occluded
 hilite.FillColor = Color3.fromRGB(18, 179, 232)
 hilite.FillTransparency = 0.90
@@ -406,7 +407,7 @@ if cam then
     clean:connect(cam:GetPropertyChangedSignal("ViewportSize"), function()
         if not clean.alive then return end
         local viewport = screenView()
-        W = math.clamp(viewport.X - 24, 220, 305)
+        W = math.clamp(viewport.X - 24, 218, 294)
         H = math.clamp(viewport.Y - 35, 295, 460)
         if not minimized then frame.Size = UDim2.fromOffset(W, H) end
         moveInside(frame, frame.AbsolutePosition)
@@ -415,167 +416,121 @@ if cam then
     end)
 end
 
--- ==== TARGET / TP =========================================================
-local cachedPing, lastPing = 55, -1e9
-local function pingMs()
+-- ==== SINGLE MOTION CONTROLLER: TP and AIM never fight for Root.CFrame ====
+local cachedPing, lastPing = 50, -1e9
+local aimPositionFor, syncAutoRotate
+local function pingSeconds()
     local now = os.clock()
-    if now - lastPing < 1 then return cachedPing end
-    lastPing = now
-    local ok, val = pcall(function() return Stats.Network.ServerStatsItem["Data Ping"]:GetValue() end)
-    if ok and type(val) == "number" then cachedPing = math.clamp(val, 0, 400) end
-    return cachedPing
-end
-local function desiredBehind()
-    local _, _, their = getChar(state.target)
-    if not their then return nil, "Цель не появилась / мертва" end
-    local _, _, mine = getChar()
-    if not mine then return nil, "Свой персонаж ещё не готов" end
-    local rootPos = their.Position
-    local humanoid = their.Parent and their.Parent:FindFirstChildOfClass("Humanoid")
-    local torso = their.Parent and (their.Parent:FindFirstChild("UpperTorso") or their.Parent:FindFirstChild("Torso"))
-    local ragdoll = false
-    if humanoid then
-        local s = humanoid:GetState()
-        ragdoll = s == Enum.HumanoidStateType.Ragdoll or s == Enum.HumanoidStateType.FallingDown
-            or s == Enum.HumanoidStateType.Physics or s == Enum.HumanoidStateType.PlatformStanding
-    end
-    if (ragdoll or not validPos(rootPos) or (torso and (torso.Position - rootPos).Magnitude > 7))
-        and torso and validPos(torso.Position) then rootPos = torso.Position end
-    if not validPos(rootPos) then return nil, "Недопустимая позиция цели" end
-    local look = their.CFrame.LookVector
-    local forward = Vector3.new(look.X, 0, look.Z)
-    if forward.Magnitude < .15 or ragdoll then
-        local away = rootPos - mine.Position
-        forward = Vector3.new(away.X, 0, away.Z)
-    end
-    if forward.Magnitude < .05 then forward = Vector3.new(0, 0, -1) end
-    forward = forward.Unit
-    local lead = Vector3.zero
-    if (SET.lead or SET.ss) and not ragdoll then
-        local vel = their.AssemblyLinearVelocity
-        local horizontal = Vector3.new(vel.X, 0, vel.Z)
-        if horizontal.Magnitude > 85 then horizontal = horizontal.Unit * 85 end
-        local horizon = math.clamp(pingMs() / 2000 + 0.012, .012, SET.ss and .115 or .085)
-        lead = horizontal * horizon
-        local maxLead = math.min(2.5, SET.distance * .7)
-        if lead.Magnitude > maxLead then lead = lead.Unit * maxLead end
-        if SET.ss then
-            local omega = their.AssemblyAngularVelocity.Y
-            if math.abs(omega) < 16 then
-                local turn = CFrame.Angles(0, omega * horizon, 0):VectorToWorldSpace(forward)
-                local horizontalTurn = Vector3.new(turn.X, 0, turn.Z)
-                if horizontalTurn.Magnitude > .05 then forward = horizontalTurn.Unit end
-            end
+    if now - lastPing >= 1.5 then
+        lastPing = now
+        local ok, value = pcall(function()
+            return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+        end)
+        if ok and type(value) == "number" and finite(value) then
+            cachedPing = math.clamp(value, 0, 300)
         end
     end
-    local goal = rootPos + lead - forward * SET.distance
-    goal = Vector3.new(goal.X, rootPos.Y, goal.Z)
-    if not validPos(goal) then return nil, "Расчёт TP вне карты" end
-    local face = Vector3.new(rootPos.X + lead.X, goal.Y, rootPos.Z + lead.Z)
-    if (goal - face).Magnitude < .15 then return nil, "Позиции совпадают" end
-    return CFrame.lookAt(goal, face)
+    return cachedPing / 1000
+end
+local function horizontal(v)
+    return Vector3.new(v.X, 0, v.Z)
+end
+local function predict(root, maxTime, maxDistance)
+    local p = root.Position
+    if not SET.lead then return p end
+    local v = horizontal(root.AssemblyLinearVelocity)
+    if v.Magnitude > 90 then v = v.Unit * 90 end
+    local dt = math.min(maxTime, pingSeconds() * .35 + .018)
+    local advance = v * dt
+    if advance.Magnitude > maxDistance then advance = advance.Unit * maxDistance end
+    return p + advance
+end
+local function behindFrame()
+    local _, enemyHum, targetRoot = getChar(state.target)
+    if not targetRoot then return nil, "Цель не готова" end
+    local predicted = predict(targetRoot, SET.ss and .085 or .060, math.min(2, SET.distance * .55))
+    if not validPos(predicted) then return nil, "Координаты цели недоступны" end
+    local face = horizontal(targetRoot.CFrame.LookVector)
+    if face.Magnitude < .06 then face = horizontal(targetRoot.AssemblyLinearVelocity) end
+    if face.Magnitude < .06 then face = Vector3.new(0, 0, -1) end
+    face = face.Unit
+    if SET.ss then
+        local angularY = targetRoot.AssemblyAngularVelocity.Y
+        if math.abs(angularY) < 12 then
+            local t = math.min(.07, pingSeconds() * .3 + .012)
+            local turned = CFrame.Angles(0, angularY * t, 0):VectorToWorldSpace(face)
+            if horizontal(turned).Magnitude > .05 then face = horizontal(turned).Unit end
+        end
+    end
+    -- Behind the opponent (negative LookVector); keep height on their root.
+    local destination = predicted - face * SET.distance
+    destination = Vector3.new(destination.X, targetRoot.Position.Y, destination.Z)
+    if not validPos(destination) then return nil, "TP заблокирован: неверная позиция" end
+    local lookAt = Vector3.new(predicted.X, destination.Y, predicted.Z)
+    if aimPositionFor and SET.aim and state.aimTarget then
+        local aimPos = aimPositionFor(state.aimTarget)
+        if aimPos then lookAt = Vector3.new(aimPos.X, destination.Y, aimPos.Z) end
+    end
+    if (lookAt - destination).Magnitude < .12 then lookAt = destination + face end
+    return CFrame.lookAt(destination, lookAt)
 end
 local corrections, previousTp, previousTpAt = 0, nil, 0
-local lastFollowTick = 0
+local followStatusAt, motionErrorAt = 0, 0
 local function teleport(force)
-    if not clean.alive or state.safeActive or state.coordinate then return false, "Активна другая зона" end
+    if not clean.alive then return false, "Скрипт закрыт" end
+    if state.safeActive or state.coordinate then return false, "Выключи SAFE/COORD" end
     if not state.target or state.target.Parent ~= Players then return false, "Выбери игрока" end
-    local char, hum, root = getChar()
-    if not char or not root then return false, "Персонаж недоступен" end
+    local char, humanoid, root = getChar()
+    if not char or not root then return false, "Персонаж не готов" end
+    if humanoid.Sit then humanoid.Sit = false end
     if root.Anchored then return false, "Персонаж закреплён игрой" end
-    local goal, reason = desiredBehind()
-    if not goal then return false, reason end
-    local offset = (root.Position - goal.Position).Magnitude
-    local aligned = root.CFrame.LookVector:Dot(goal.LookVector) > .998
-    if not force and offset < .18 and aligned then return true, "у цели" end
-    local ok, err = pcall(function() char:PivotTo(goal) end)
-    if not ok or (root.Position - goal.Position).Magnitude > .7 then
-        ok, err = pcall(function() root.CFrame = goal end)
+    local wanted, reason = behindFrame()
+    if not wanted then return false, reason end
+    local delta = (root.Position - wanted.Position).Magnitude
+    local orientation = root.CFrame.LookVector:Dot(wanted.LookVector)
+    if not force and delta < .13 and orientation > .9994 then return true, "У цели" end
+    -- One CFrame write per tick. PivotTo is only a *fallback* on explicit START,
+    -- not something that traverses the entire character on every frame.
+    local ok, err = pcall(function() root.CFrame = wanted end)
+    if force and (not ok or (root.Position - wanted.Position).Magnitude > .8) then
+        ok, err = pcall(function() char:PivotTo(wanted) end)
     end
-    if not ok or (root.Position - goal.Position).Magnitude > 1 then
-        return false, "Локальный TP не принят: " .. tostring(err):sub(1, 60)
+    if not ok or (root.Position - wanted.Position).Magnitude > 1.2 then
+        return false, "Локальный TP не удался: " .. tostring(err):sub(1, 55)
     end
-    -- Only clear runaway velocity for large jumps; preserving local momentum
-    -- during close-range follow prevents the dash/attack freeze from v34.
-    if force and offset > 11 then
-        pcall(function()
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end)
-    end
-    previousTp, previousTpAt = goal.Position, os.clock()
+    previousTp, previousTpAt = wanted.Position, os.clock()
     state.tpCount = state.tpCount + 1
-    return true, "позиция изменена локально"
-end
-local function rotateToTarget(plr)
-    local _, hum, root = getChar()
-    local _, _, enemyRoot = getChar(plr)
-    if not root or not enemyRoot or root.Anchored or hum.Sit then return end
-    local head = enemyRoot.Parent:FindFirstChild("UpperTorso") or enemyRoot.Parent:FindFirstChild("Torso")
-    local pos = head and head.Position or enemyRoot.Position
-    local look = Vector3.new(pos.X, root.Position.Y, pos.Z)
-    if (look - root.Position).Magnitude > .5 then
-        pcall(function() root.CFrame = CFrame.lookAt(root.Position, look) end)
-    end
+    return true, "TP применён локально"
 end
 local function paintFollow()
     local ready = state.target and state.target.Parent == Players
     UI.start.BackgroundColor3 = ready and C.green or C.button
-    UI.start.Text = state.follow and "▶ FOLLOW • АКТИВНО"
-        or (ready and "▶ START • FOLLOW" or "▶ СНАЧАЛА ВЫБЕРИ ИГРОКА")
+    UI.start.Text = state.follow and "▶  FOLLOW: ON"
+        or (ready and "▶  START" or "▶  ВЫБЕРИ ИГРОКА")
 end
 local function stopFollow(preserve)
     if not preserve then state.resumeFollow = false end
     state.follow = false
-    clean:unbind("TSB_DELTA_v36_Follow")
+    previousTp = nil
+    if syncAutoRotate then syncAutoRotate() end
     paintFollow()
 end
-local function followStep()
-    if not clean.alive or not state.follow then return end
-    local tickNow = os.clock()
-    if tickNow - lastFollowTick < 1/60 then return end
-    lastFollowTick = tickNow
+local function startFollow()
     if not state.target or state.target.Parent ~= Players then
-        stopFollow(false)
-        status("Цель вышла из игры", "error")
+        status("Сначала выбери игрока", "error")
         return
     end
-    local now = os.clock()
-    -- This detects repeated large server corrections, without an extra task.
-    if previousTp and now - previousTpAt < .5 then
-        local _, _, myRoot = getChar()
-        local goal = desiredBehind()
-        if myRoot and goal and (myRoot.Position - previousTp).Magnitude > 18
-            and (myRoot.Position - goal.Position).Magnitude > 16 then
-            corrections = corrections + 1
-            previousTp = nil
-        end
+    if state.coordinate or state.safeActive then
+        status("Выключи SAFE ZONA / COORD перед START", "error")
+        return
     end
-    local ok, msg = teleport(false)
-    if now - (state.lastFollowStatus or 0) > .85 then
-        state.lastFollowStatus = now
-        if corrections >= 4 then status("Сервер исправляет позицию — реальный TP может не проходить", "error")
-        else status(ok and ("FOLLOW: позиционирование активно (" .. state.tpCount .. ")")
-            or ("FOLLOW: " .. tostring(msg)), ok and "ok" or "error") end
-    end
-end
-local function startFollow()
-    if not state.target then status("Сначала выбери игрока", "error"); return end
-    if state.coordinate then status("Сначала вернись из координатной зоны", "error"); return end
-    if state.safeActive then status("Сначала выключи SAFE ZONA", "error"); return end
     state.follow, state.resumeFollow = true, true
-    corrections, previousTp, lastFollowTick = 0, nil, 0
-    local ok, msg = teleport(true)
-    status(ok and "FOLLOW запущен: " .. msg or "FOLLOW ожидает: " .. tostring(msg), ok and "ok" or "error")
-    clean:bind("TSB_DELTA_v36_Follow", Enum.RenderPriority.Character.Value + 2, function()
-        local success, err = pcall(followStep)
-        if not success then
-            if os.clock() - (state.lastFollowError or 0) > 2 then
-                state.lastFollowError = os.clock()
-                warn("[TSB v36 FOLLOW] " .. tostring(err))
-            end
-        end
-    end)
+    corrections, previousTp, previousTpAt = 0, nil, 0
+    if syncAutoRotate then syncAutoRotate() end
+    -- Immediate position write on button tap, never waits for a motion step.
+    local ok, reason = teleport(true)
+    status(ok and ("FOLLOW ▶ " .. state.target.Name) or ("TP: " .. tostring(reason)),
+        ok and "ok" or "error")
     paintFollow()
 end
 
@@ -690,6 +645,7 @@ clean:connect(Players.PlayerRemoving, function(player)
         state.aimTarget = nil
         hilite.Enabled, hilite.Adornee = false, nil
         aimHud.Text, aimHud.BackgroundColor3 = "◎", C.button
+        if syncAutoRotate then syncAutoRotate() end
     end
     scheduleRosterUpdate()
 end)
@@ -720,13 +676,23 @@ toggleLook(UI.lead, "ОПЕРЕЖЕНИЕ", SET.lead)
 toggleLook(UI.ss, "TP SS+", SET.ss)
 paintFollow()
 
--- ==== AIM / DUEL CAMERA ===================================================
+-- ==== AIM: CHARACTER ROTATION ONLY; NEVER MODIFY CurrentCamera ====
 local savedRotate, savedHum = nil, nil
 local function restoreRotation()
     if savedHum and savedHum.Parent and savedRotate ~= nil then
         pcall(function() savedHum.AutoRotate = savedRotate end)
     end
     savedHum, savedRotate = nil, nil
+end
+syncAutoRotate = function()
+    local own = state.follow or (SET.aim and state.aimTarget ~= nil)
+    local _, humanoid = getChar()
+    if not own or not humanoid then restoreRotation(); return end
+    if humanoid ~= savedHum then
+        restoreRotation()
+        savedHum, savedRotate = humanoid, humanoid.AutoRotate
+    end
+    if humanoid.AutoRotate then humanoid.AutoRotate = false end
 end
 local function aimUi()
     toggleLook(UI.aim, "AIM LOCK", SET.aim)
@@ -738,12 +704,20 @@ local function aimUi()
     hilite.Adornee = char
     hilite.Enabled = char ~= nil and active
 end
-local function aimPoint(plr)
-    local _, _, root = getChar(plr)
-    if not root then return end
-    local model = root.Parent
-    local torso = model:FindFirstChild("UpperTorso") or model:FindFirstChild("Torso")
-    return torso and torso.Position or root.Position
+aimPositionFor = function(plr)
+    local _, _, targetRoot = getChar(plr)
+    if not targetRoot then return nil end
+    -- Small lead for directional aim; the target's current, replicated position
+    -- is usually more reliable than extrapolating a whole ping interval.
+    local pos = targetRoot.Position
+    if SET.lead then
+        local vel = horizontal(targetRoot.AssemblyLinearVelocity)
+        if vel.Magnitude > 85 then vel = vel.Unit * 85 end
+        local lead = vel * math.min(.035, pingSeconds() * .2 + .008)
+        if lead.Magnitude > .9 then lead = lead.Unit * .9 end
+        pos = pos + lead
+    end
+    return pos
 end
 local function pickTarget()
     local camera = workspace.CurrentCamera
@@ -753,7 +727,7 @@ local function pickTarget()
     local winner, closest = nil, radius
     for _, candidate in ipairs(Players:GetPlayers()) do
         if candidate ~= LocalPlayer then
-            local pos = aimPoint(candidate)
+            local pos = aimPositionFor(candidate)
             if pos then
                 local at, onScreen = camera:WorldToViewportPoint(pos)
                 if onScreen and at.Z > 0 then
@@ -763,75 +737,95 @@ local function pickTarget()
             end
         end
     end
-    -- For duels with camera cutscenes, fall back to the explicitly chosen player.
-    if not winner and state.target and aimPoint(state.target) then return state.target end
+    if not winner and state.target and aimPositionFor(state.target) then return state.target end
     return winner
 end
-local function aimTick()
-    if not clean.alive or not SET.aim then return end
+local function rotateAvatarToAim()
     local target = state.aimTarget
-    if not target or target.Parent ~= Players then return end
-    local pos = aimPoint(target)
-    if not pos then
+    if not SET.aim or not target or target.Parent ~= Players then return end
+    local _, humanoid, root = getChar()
+    if not root or humanoid.Sit or root.Anchored then return end
+    local point = aimPositionFor(target)
+    if not point then
         if hilite.Enabled then hilite.Enabled = false end
-        return -- do not drop lock through respawn, especially during duels
+        return
     end
     if hilite.Adornee ~= target.Character or not hilite.Enabled then
         hilite.Adornee, hilite.Enabled = target.Character, true
     end
-    local camera = workspace.CurrentCamera
-    if camera and camera.CFrame then
-        local origin = camera.CFrame.Position
-        if (pos - origin).Magnitude > .1 then
-            camera.CFrame = CFrame.lookAt(origin, pos)
-        end
+    local direction = Vector3.new(point.X - root.Position.X, 0, point.Z - root.Position.Z)
+    if direction.Magnitude < .2 then return end
+    local face = direction.Unit
+    -- Immediate avatar-only yaw, no camera tracking, lerp or tween.
+    if root.CFrame.LookVector:Dot(face) < .9993 then
+        root.CFrame = CFrame.lookAt(root.Position, root.Position + face)
     end
-    local _, hum = getChar()
-    if hum then
-        if hum ~= savedHum then
-            restoreRotation()
-            savedHum, savedRotate = hum, hum.AutoRotate
-        end
-        if hum.AutoRotate then hum.AutoRotate = false end
-    end
-    if not state.follow then rotateToTarget(target) end
 end
 local function switchAim(on)
     SET.aim = on == true
-    -- Never auto-lock on activation; a separate deliberate tap is required.
-    if not SET.aim then
-        state.aimTarget = nil
-        clean:unbind("TSB_DELTA_v36_Aim")
-        restoreRotation()
-    else
-        clean:bind("TSB_DELTA_v36_Aim", Enum.RenderPriority.Last.Value - 1, function()
-            local ok, err = pcall(aimTick)
-            if not ok and os.clock() - (state.lastAimError or 0) > 3 then
-                state.lastAimError = os.clock()
-                warn("[TSB v36 AIM] " .. tostring(err))
-            end
-        end)
-    end
+    if not SET.aim then state.aimTarget = nil end
+    syncAutoRotate()
     aimUi()
 end
 clean:connect(UI.aim.Activated, function()
     switchAim(not SET.aim)
-    status(SET.aim and "AIM готов • цель не захвачена. Нажми ◎" or "AIM выключен")
+    status(SET.aim and "AIM включён • нажми ◎ для захвата" or "AIM выключен")
 end)
 clean:connect(aimHud.Activated, function()
     if not SET.aim or wasDragged(aimHud) then return end
     if state.aimTarget then
         state.aimTarget = nil
-        restoreRotation()
-        status("AIM: цель снята")
+        status("AIM: захват снят")
     else
-        state.aimTarget = (state.target and aimPoint(state.target) and state.target) or pickTarget()
-        status(state.aimTarget and ("AIM захватил @" .. state.aimTarget.Name)
-            or "AIM: наведи центр экрана на игрока или выбери его", state.aimTarget and "ok" or "error")
+        state.aimTarget = (state.target and aimPositionFor(state.target) and state.target) or pickTarget()
+        status(state.aimTarget and ("AIM: @" .. state.aimTarget.Name)
+            or "AIM: выбери цель или наведи центр экрана", state.aimTarget and "ok" or "error")
     end
+    syncAutoRotate()
     aimUi()
 end)
 aimUi()
+
+-- Sole real-time motion loop. No RenderStep bindings, no per-frame camera edits.
+clean:connect(RunService.PostSimulation, function()
+    if not clean.alive or not state.follow and not (SET.aim and state.aimTarget) then return end
+    local ok, err = pcall(function()
+        syncAutoRotate()
+        if state.follow then
+            if not state.target or state.target.Parent ~= Players then
+                stopFollow(false)
+                status("Цель покинула сервер", "error")
+                return
+            end
+            local now = os.clock()
+            local localRoot = select(3, getChar())
+            if previousTp and localRoot and now - previousTpAt < .45 then
+                local goal = behindFrame()
+                if goal and (localRoot.Position - previousTp).Magnitude > 9
+                    and (localRoot.Position - goal.Position).Magnitude > 9 then
+                    corrections = corrections + 1
+                end
+            end
+            local success, reason = teleport(false)
+            if now - followStatusAt >= 1.1 then
+                followStatusAt = now
+                if not success then status("FOLLOW: " .. tostring(reason), "error")
+                elseif corrections > 12 then
+                    status("TP сбрасывается игровым сервером", "error")
+                    corrections = 0
+                end
+            end
+        elseif SET.aim and state.aimTarget then
+            syncAutoRotate()
+            rotateAvatarToAim()
+        end
+    end)
+    if not ok and os.clock() - motionErrorAt >= 2 then
+        motionErrorAt = os.clock()
+        warn("[TSB v37 Motion] " .. tostring(err))
+        status("Ошибка движения: " .. tostring(err):sub(1, 65), "error")
+    end
+end)
 
 -- ==== FAST OPTIONAL SPEED =================================================
 local speedHum, oldSpeed, lastAppliedSpeed = nil, nil, nil
@@ -897,7 +891,7 @@ local function enterSafe()
     state.safeReturn = root.CFrame
     local y = math.max(workspace.FallenPartsDestroyHeight + 18, -80)
     local part = create("Part", workspace, {
-        Name = "TSB_v36_LocalSafeFloor", Size = Vector3.new(24, 2, 24),
+        Name = "TSB_v37_LocalSafeFloor", Size = Vector3.new(24, 2, 24),
         CFrame = CFrame.new(root.Position.X, y - 4, root.Position.Z),
         Anchored = true, CanCollide = true, CanTouch = false, CanQuery = false,
         Transparency = 1, CastShadow = false,
@@ -927,7 +921,7 @@ local function monitorCharacter(character)
     local hum = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 8)
     if not clean.alive or not hum then return end
     humHealthConn = hum.HealthChanged:Connect(function(health)
-        if SET.safe and not state.safeActive and not state.coordinate
+        if SET.safe and not state.follow and not state.safeActive and not state.coordinate
             and health > 0 and health <= SET.safeThreshold then pcall(enterSafe) end
     end)
     humDiedConn = hum.Died:Connect(function()
@@ -1028,7 +1022,7 @@ clean:connect(UI.coord.Activated, function()
     -- BELOW FallenPartsDestroyHeight cannot safely be reached client-side.
     -- Keep the requested coordinate, but never promise it will survive physics.
     state.coordPart = create("Part", workspace, {
-        Name = "TSB_v36_CoordFloor", Size = Vector3.new(26, 2, 26),
+        Name = "TSB_v37_CoordFloor", Size = Vector3.new(26, 2, 26),
         Anchored = true, CanCollide = true, CanTouch = false, CanQuery = false,
         CFrame = CFrame.new(TARGET_COORD.Position - Vector3.new(0, 4, 0)),
         Transparency = 1,
@@ -1234,7 +1228,7 @@ end)
 task.spawn(function()
     while clean.alive do
         pcall(paintVisual)
-        task.wait(3)
+        task.wait(8)
     end
 end)
 
@@ -1313,7 +1307,7 @@ local function runRemote(key, btn, field, caption)
             field.Text = "ОШИБКА ЗАГРУЗКИ: " .. tostring(errorMsg):sub(1, 190)
             btn.Text = "↻ ПОВТОРИТЬ " .. caption
             status(caption .. ": недоступен исходник", "error")
-            warn("[TSB v36/" .. key .. "] " .. tostring(errorMsg))
+            warn("[TSB v37/" .. key .. "] " .. tostring(errorMsg))
             return
         end
         local okCompile, fn, why = pcall(loadstring, source)
@@ -1339,7 +1333,7 @@ local function runRemote(key, btn, field, caption)
             btn.Text = "↻ ПОВТОРИТЬ " .. caption
             field.Text = "ОШИБКА ВЫПОЛНЕНИЯ: " .. tostring(result):sub(1, 185)
             status(caption .. ": ошибка запуска", "error")
-            warn("[TSB v36/" .. key .. "] " .. tostring(result))
+            warn("[TSB v37/" .. key .. "] " .. tostring(result))
         end
     end)
 end
@@ -1395,4 +1389,4 @@ clean:connect(closeBtn.Activated, shutdown)
 rebuildRoster()
 if SET.fps then startVisual() end
 paintVisual()
-status("v36 готов • выбор цели → START для TP • AIM без захвата", "ok")
+status("v37 • выбери цель → START; AIM вращает персонажа", "ok")
