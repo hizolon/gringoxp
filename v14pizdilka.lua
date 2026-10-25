@@ -1,4 +1,4 @@
--- TSB DELTA v23 | restored complete feature set, mobile interface
+-- TSB DELTA v24 | restored complete feature set, mobile interface
 -- Manual abilities only; persistent target chasing, optional external menu.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- FPS optimization is reversible and disabled by default; no ESP/outline.
@@ -245,7 +245,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
+    for _, key in ipairs({"__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -260,7 +260,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24") then
                 gui:Destroy()
             end
         end
@@ -268,7 +268,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_Delta_V23"
+ScreenGui.Name = "TSB_Delta_V24"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -314,7 +314,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB DELTA · v23"
+Title.Text = "TSB DELTA · v24"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
@@ -588,7 +588,7 @@ do
 -- Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB DELTA · v23"
+Title.Text = "TSB DELTA · v24"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -807,15 +807,62 @@ ExtraScroll.ScrollBarThickness = 3
 ExtraScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 ExtraScroll.Parent = ExtraPage
 
+-- Standalone manual loader: visually distinct, never executed on opening the menu.
+local DangerLaunchButton = Instance.new("TextButton")
+DangerLaunchButton.Name = "LaunchDangerModule"
+DangerLaunchButton.BorderSizePixel = 0
+DangerLaunchButton.Text = ""
+DangerLaunchButton.AutoButtonColor = false
+DangerLaunchButton.BackgroundColor3 = Color3.fromRGB(92, 15, 22)
+relayout(DangerLaunchButton, ExtraScroll, 8, 9, innerW, 66)
+Instance.new("UICorner", DangerLaunchButton).CornerRadius = UDim.new(0, 9)
+local DangerGradient = Instance.new("UIGradient")
+DangerGradient.Rotation = 0
+DangerGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(21, 9, 16)),
+    ColorSequenceKeypoint.new(0.48, Color3.fromRGB(143, 21, 33)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(47, 8, 22)),
+})
+DangerGradient.Parent = DangerLaunchButton
+local DangerBorder = Instance.new("UIStroke")
+DangerBorder.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+DangerBorder.Color = Color3.fromRGB(255, 69, 80)
+DangerBorder.Thickness = 1.7
+DangerBorder.Parent = DangerLaunchButton
+local DangerTitle = Instance.new("TextLabel")
+DangerTitle.Name = "DangerTitle"
+DangerTitle.BackgroundTransparency = 1
+DangerTitle.Font = Enum.Font.GothamBlack
+DangerTitle.Text = "☠  DANGER SCRIPT  ☠"
+DangerTitle.TextSize = 16
+DangerTitle.TextScaled = false
+DangerTitle.TextTruncate = Enum.TextTruncate.AtEnd
+DangerTitle.TextColor3 = Color3.fromRGB(255, 244, 242)
+DangerTitle.Size = UDim2.new(1, -18, 0, 29)
+DangerTitle.Position = UDim2.fromOffset(9, 7)
+DangerTitle.Parent = DangerLaunchButton
+local DangerSubtitle = Instance.new("TextLabel")
+DangerSubtitle.BackgroundTransparency = 1
+DangerSubtitle.Font = Enum.Font.GothamBold
+DangerSubtitle.Text = "JNKIE  •  НАЖМИ ДЛЯ ЗАПУСКА"
+DangerSubtitle.TextSize = 10
+DangerSubtitle.TextColor3 = Color3.fromRGB(255, 191, 174)
+DangerSubtitle.Size = UDim2.new(1, -18, 0, 18)
+DangerSubtitle.Position = UDim2.fromOffset(9, 37)
+DangerSubtitle.Parent = DangerLaunchButton
+local DangerStatus = infoLabel(ExtraScroll,
+    "Внешний модуль: загружается только после нажатия. Содержимое по ссылке не проверено.",
+    81, 47)
+
 local OptimizationToggle = Instance.new("TextButton")
 OptimizationToggle.Name = "OptimizationToggle"
 OptimizationToggle.BorderSizePixel = 0
 OptimizationToggle.Font = Enum.Font.SourceSansBold
 OptimizationToggle.TextSize = 14
 OptimizationToggle.TextColor3 = Color3.new(1, 1, 1)
-relayout(OptimizationToggle, ExtraScroll, 8, 9, innerW, 40)
+relayout(OptimizationToggle, ExtraScroll, 8, 139, innerW, 40)
 Instance.new("UICorner", OptimizationToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(ExtraScroll, "Тени декора, частицы и тяжёлые эффекты: OFF. Игроки, физика, коллизии и интерфейс сохраняются. Можно отключить режим.", 57, 64)
+infoLabel(ExtraScroll, "Тени декора, частицы и тяжёлые эффекты: OFF. Игроки, физика, коллизии и интерфейс сохраняются. Можно отключить режим.", 187, 64)
 
 local DistanceToggle = Instance.new("TextButton")
 DistanceToggle.Name = "DistanceEcoToggle"
@@ -823,10 +870,10 @@ DistanceToggle.BorderSizePixel = 0
 DistanceToggle.Font = Enum.Font.SourceSansBold
 DistanceToggle.TextSize = 13
 DistanceToggle.TextColor3 = Color3.new(1,1,1)
-relayout(DistanceToggle, ExtraScroll, 8, 125, innerW, 36)
+relayout(DistanceToggle, ExtraScroll, 8, 257, innerW, 36)
 Instance.new("UICorner", DistanceToggle).CornerRadius = UDim.new(0, 6)
 
-local RadiusLabel = infoLabel(ExtraScroll, "Радиус декора (80–300 studs):", 172, 33)
+local RadiusLabel = infoLabel(ExtraScroll, "Радиус декора (80–300 studs):", 306, 33)
 RadiusLabel.Size = UDim2.fromOffset(halfW + 20, 34)
 local RadiusInput = Instance.new("TextBox")
 RadiusInput.Name = "CullingRadius"
@@ -837,9 +884,9 @@ RadiusInput.Font = Enum.Font.SourceSansBold
 RadiusInput.TextSize = 15
 RadiusInput.TextColor3 = Color3.fromRGB(245,249,255)
 RadiusInput.BackgroundColor3 = Color3.fromRGB(41,52,69)
-relayout(RadiusInput, ExtraScroll, rightX, 172, rightW, 34)
+relayout(RadiusInput, ExtraScroll, rightX, 306, rightW, 34)
 Instance.new("UICorner", RadiusInput).CornerRadius = UDim.new(0, 6)
-infoLabel(ExtraScroll, "Важно: скрипт не может включить серверный StreamingEnabled. Коллизии, физика, NPC и боевые объекты остаются. Изменения графики обратимы.", 217, 79)
+infoLabel(ExtraScroll, "Важно: скрипт не может включить серверный StreamingEnabled. Коллизии, физика, NPC и боевые объекты остаются. Изменения графики обратимы.", 351, 68)
 
 local HKGButton = Instance.new("TextButton")
 HKGButton.Name = "ExternalHKGVoid"
@@ -849,9 +896,9 @@ HKGButton.TextColor3 = Color3.new(1, 1, 1)
 HKGButton.Font = Enum.Font.SourceSansBold
 HKGButton.TextSize = 15
 HKGButton.Text = "▶ ЗАПУСТИТЬ HKG VOID"
-relayout(HKGButton, ExtraScroll, 8, 295, innerW, 39)
+relayout(HKGButton, ExtraScroll, 8, 425, innerW, 39)
 Instance.new("UICorner", HKGButton).CornerRadius = UDim.new(0, 7)
-local HKGStatus = infoLabel(ExtraScroll, "Дополнительный код запускается только по нажатию. Источник не проверен.", 340, 76)
+local HKGStatus = infoLabel(ExtraScroll, "Дополнительный код запускается только по нажатию. Источник не проверен.", 470, 76)
 
 -- Supplied full Infinite Yield is embedded at the end of this file, not fetched.
 local IYLaunchButton = Instance.new("TextButton")
@@ -862,12 +909,17 @@ IYLaunchButton.Font = Enum.Font.SourceSansBold
 IYLaunchButton.TextSize = 13
 IYLaunchButton.TextColor3 = Color3.new(1, 1, 1)
 IYLaunchButton.Text = "▶ ОТКРЫТЬ INVIS+ / КОМАНДЫ"
-relayout(IYLaunchButton, ExtraScroll, 8, 429, innerW, 39)
+relayout(IYLaunchButton, ExtraScroll, 8, 554, innerW, 39)
 Instance.new("UICorner", IYLaunchButton).CornerRadius = UDim.new(0, 6)
 local IYStatus = infoLabel(ExtraScroll,
     "Встроенный модуль запускается вручную в этой вкладке. Плавающих кнопок справа нет.",
-    476, 58)
-ExtraScroll.CanvasSize = UDim2.fromOffset(0, 551)
+    601, 58)
+ExtraScroll.CanvasSize = UDim2.fromOffset(0, 676)
+Refs.DangerLaunchButton = DangerLaunchButton
+Refs.DangerTitle = DangerTitle
+Refs.DangerSubtitle = DangerSubtitle
+Refs.DangerStatus = DangerStatus
+Refs.DangerBorder = DangerBorder
 Refs.IYLaunchButton = IYLaunchButton
 Refs.IYStatus = IYStatus
 
@@ -998,9 +1050,9 @@ local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V23"
+local AimRenderName = "TSB_DELTA_AIM_V24"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V23"
+local MoveRenderName = "TSB_DELTA_MOVE_V24"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -15855,6 +15907,74 @@ Refs.HKGButton.Activated:Connect(function()
     end)
 end)
 
+
+-- ------------------------------------------------------------
+-- Manually launched external JNKIE module. User-provided URL only.
+-- Neither HTTP download nor code execution occurs until the button is tapped.
+-- Script content may change on the remote server without notice.
+-- ------------------------------------------------------------
+local JNKIE_DANGER_URL = "https://api.jnkie.com/api/v1/luascripts/public/e7272cc100526cce2983ec85de722d45e915a26117824385c78e0c30e61585f4/download"
+local dangerStarted, dangerLoading = false, false
+local function dangerUI(title, subtitle, status, stroke)
+    if not Active or not ScreenGui.Parent then return end
+    Refs.DangerTitle.Text = title
+    Refs.DangerSubtitle.Text = subtitle
+    Refs.DangerStatus.Text = status
+    Refs.DangerBorder.Color = stroke
+end
+Refs.DangerLaunchButton.Activated:Connect(function()
+    if dangerLoading or dangerStarted or not Active then return end
+    if type(loadstring) ~= "function" then
+        dangerUI("☠  НЕ ПОДДЕРЖИВАЕТСЯ", "НУЖЕН LOADSTRING",
+            "Этот исполнитель не поддерживает loadstring.", Color3.fromRGB(255, 155, 70))
+        return
+    end
+    dangerLoading = true
+    dangerUI("⌛  ЗАГРУЖАЮ...", "JNKIE  •  ПРОВЕРКА ОТВЕТА",
+        "Подключаюсь к указанному адресу...", Color3.fromRGB(255, 185, 65))
+    task.spawn(function()
+        local okFetch, sourceOrErr = pcall(function()
+            return game:HttpGet(JNKIE_DANGER_URL)
+        end)
+        if not Active then return end
+        if not okFetch or type(sourceOrErr) ~= "string" or sourceOrErr == "" then
+            dangerLoading = false
+            dangerUI("☠  ПОВТОРИТЬ ЗАПУСК", "JNKIE  •  НЕТ ОТВЕТА",
+                "Загрузка не удалась: " .. tostring(sourceOrErr):sub(1, 105), Color3.fromRGB(255, 90, 90))
+            return
+        end
+        local source = sourceOrErr
+        if source:sub(1, 256):lower():find("<html", 1, true) or source:sub(1, 256):lower():find("<!doctype", 1, true) then
+            dangerLoading = false
+            dangerUI("☠  ПОВТОРИТЬ ЗАПУСК", "JNKIE  •  НЕКОРРЕКТНЫЙ ОТВЕТ",
+                "Сервер вернул HTML вместо Lua-кода.", Color3.fromRGB(255, 90, 90))
+            return
+        end
+        local okCompile, compiledOrErr = pcall(loadstring, source)
+        if not okCompile or type(compiledOrErr) ~= "function" then
+            dangerLoading = false
+            dangerUI("☠  ПОВТОРИТЬ ЗАПУСК", "JNKIE  •  ОШИБКА LUA",
+                "Код не скомпилирован: " .. tostring(compiledOrErr):sub(1, 105), Color3.fromRGB(255, 90, 90))
+            return
+        end
+        -- Mark as started before entering the external chunk, which might not return.
+        dangerStarted = true
+        dangerLoading = false
+        dangerUI("⌛  КОД ВЫПОЛНЯЕТСЯ", "JNKIE  •  НЕ ЗАПУСКАТЬ ДВАЖДЫ",
+            "Модуль передан на выполнение. Работа его функций не подтверждена.", Color3.fromRGB(255, 105, 115))
+        local okRun, runErr = pcall(compiledOrErr)
+        if not Active then return end
+        if okRun then
+            dangerUI("☠  МОДУЛЬ ЗАПУЩЕН", "JNKIE  •  ПОВТОРНЫЙ ЗАПУСК ЗАБЛОКИРОВАН",
+                "Код выполнен без ошибки Lua. Внутренние функции не проверены.", Color3.fromRGB(255, 105, 115))
+        else
+            dangerStarted = false
+            dangerUI("☠  ПОВТОРИТЬ ЗАПУСК", "JNKIE  •  ОШИБКА ВЫПОЛНЕНИЯ",
+                "Ошибка внешнего модуля: " .. tostring(runErr):sub(1, 105), Color3.fromRGB(255, 90, 90))
+        end
+    end)
+end)
+
 -- BUTTON CONNECTIONS
 -- ============================================================
 -- Speed input applies only on focus loss; avoids per-keystroke writes.
@@ -16008,12 +16128,12 @@ Shutdown = function()
         if conn then safe(function() conn:Disconnect() end) end
     end
     safe(function() if HiddenFolder then HiddenFolder:Destroy() end end)
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
