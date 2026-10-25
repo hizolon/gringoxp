@@ -1,4 +1,4 @@
--- TSB DELTA v20 | restored complete feature set, mobile interface
+-- TSB DELTA v21 | restored complete feature set, mobile interface
 -- Manual abilities only; persistent target chasing, optional external menu.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- FPS optimization is reversible and disabled by default; no ESP/outline.
@@ -86,7 +86,13 @@ do
     end
     local function optimizeEffect(obj)
         if obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
-           or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+           or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect")
+           or obj:IsA("ColorCorrectionEffect") then
+            remember(obj, "Enabled", false)
+        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail")
+           or obj:IsA("Beam") or obj:IsA("Fire")
+           or obj:IsA("Smoke") or obj:IsA("Sparkles") then
+            -- Graphics-only change; keep combat bodies, hitboxes and physics.
             remember(obj, "Enabled", false)
         end
     end
@@ -161,12 +167,17 @@ do
         local queue = workspace:GetChildren()
         local index, scanned = 1, 0
         while state.active and state.generation == token and index <= #queue
-            and #state.candidates < 850 and scanned < 16000 do
+            and scanned < 16000 do
             local obj = queue[index]
             index = index + 1
             scanned = scanned + 1
             if obj and obj.Parent then
-                if obj:IsA("BasePart") then addCandidate(obj) end
+                if obj:IsA("BasePart") then
+                    addCandidate(obj)
+                    if isCosmeticPart(obj) then remember(obj, "CastShadow", false) end
+                else
+                    optimizeEffect(obj)
+                end
                 if obj ~= workspace.Terrain and obj ~= workspace.CurrentCamera then
                     for _, child in ipairs(obj:GetChildren()) do
                         queue[#queue + 1] = child
@@ -195,7 +206,13 @@ do
             if state.active then optimizeEffect(obj) end
         end)
         state.addedConn = workspace.DescendantAdded:Connect(function(obj)
-            if state.active and state.distanceEnabled and obj:IsA("BasePart") then addCandidate(obj) end
+            if not state.active then return end
+            if obj:IsA("BasePart") then
+                if state.distanceEnabled then addCandidate(obj) end
+                if isCosmeticPart(obj) then remember(obj, "CastShadow", false) end
+            else
+                optimizeEffect(obj)
+            end
         end)
         task.spawn(function() scanGradually(token) end)
         task.spawn(function()
@@ -234,7 +251,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN", "__NEBULA_TSB_EXIT"}) do
+    for _, key in ipairs({"__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN", "__NEBULA_TSB_EXIT"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -249,7 +266,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17" or gui.Name == "NebulaTSBv18" or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20") then
+            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17" or gui.Name == "NebulaTSBv18" or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21") then
                 gui:Destroy()
             end
         end
@@ -257,7 +274,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_Delta_V20"
+ScreenGui.Name = "TSB_Delta_V21"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -303,7 +320,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB DELTA · v20"
+Title.Text = "TSB DELTA · v21"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
@@ -399,7 +416,7 @@ local StatusLabel = Instance.new("TextLabel")
 StatusLabel.Position = UDim2.new(0, 7, 0, 28)
 StatusLabel.Size = UDim2.new(1, -14, 0, 18)
 StatusLabel.BackgroundTransparency = 1
-StatusLabel.Text = "Нажми на цель — непрерывное преследование"
+StatusLabel.Text = "Выбери игрока → START"
 StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
 StatusLabel.Font = Enum.Font.SourceSans
 StatusLabel.TextSize = 11
@@ -602,7 +619,7 @@ do
 -- NEBULA v16 | Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB DELTA · v20"
+Title.Text = "TSB DELTA · v21"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -705,7 +722,7 @@ relayout(SelectionFrame, TargetScroll, 8, 8, innerW, targetListHeight)
 PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
 relayout(StartButton, TargetScroll, 8, targetListHeight + 16, halfW, 35)
 relayout(StopButton, TargetScroll, rightX, targetListHeight + 16, rightW, 35)
-StartButton.Text = "ПРЕСЛЕДОВАТЬ"
+StartButton.Text = "▶ START / TP"
 StopButton.Text = "ОСТАНОВИТЬ"
 StartButton.TextSize = 11
 StopButton.TextSize = 11
@@ -724,7 +741,7 @@ LeadToggle.TextSize = 12
 LeadToggle.TextColor3 = Color3.new(1, 1, 1)
 relayout(LeadToggle, TargetScroll, 8, targetListHeight + 142, innerW, 35)
 Instance.new("UICorner", LeadToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(TargetScroll, "Выбор игрока включает постоянный TP. Без автоатак и без поворота камеры.", targetListHeight + 185, 48)
+infoLabel(TargetScroll, "Выбери игрока (галочка), затем START. TP повторяется непрерывно; STOP прекращает. Автоатак нет.", targetListHeight + 185, 48)
 TargetScroll.CanvasSize = UDim2.fromOffset(0, targetListHeight + 250)
 
 -- Dedicated auto-cycle page: START/STOP and cooldowns always visible.
@@ -830,7 +847,7 @@ OptimizationToggle.TextSize = 14
 OptimizationToggle.TextColor3 = Color3.new(1, 1, 1)
 relayout(OptimizationToggle, ExtraScroll, 8, 9, innerW, 40)
 Instance.new("UICorner", OptimizationToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(ExtraScroll, "Лёгкое освещение + скрытие только далёкого статичного декора. Объекты и игроки не удаляются.", 57, 64)
+infoLabel(ExtraScroll, "Тени декора, частицы и тяжёлые эффекты: OFF. Игроки, физика, коллизии и интерфейс сохраняются. Можно отключить режим.", 57, 64)
 
 local DistanceToggle = Instance.new("TextButton")
 DistanceToggle.Name = "DistanceEcoToggle"
@@ -971,6 +988,7 @@ local RandomCycle = {
 local SelectedTarget = nil
 local PlayerButtons = {}
 local BackstabActive = false
+local FollowWanted = false -- stays armed during respawn until STOP
 local PositionConnection = nil
 local HealthConnection = nil
 local SafePlatform = nil
@@ -997,7 +1015,7 @@ local TrashAutoEnabled = false
 local TrashToken = 0
 local TrashPhase = "idle"
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V20"
+local AimRenderName = "TSB_DELTA_AIM_V21"
 local TrashIndex = {}
 local TrashBlacklist = {}
 local TrashIndexReady = false
@@ -1005,7 +1023,7 @@ local TrashIndexConnection = nil
 local LastTrashScanAt = 0
 local CachedTrash = nil
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V20"
+local MoveRenderName = "TSB_DELTA_MOVE_V21"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1507,7 +1525,7 @@ local function monitorHealth(character)
     end)
 
     DeathConnection = hum.Died:Connect(function()
-        if BackstabActive and StopBackstab then StopBackstab() end
+        if BackstabActive and StopBackstab then StopBackstab(true) end
         if CONFIG.AUTO_RESET then
             StatusLabel.Text = "AUTO RESET: corpse vanished"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 140, 40)
@@ -1612,26 +1630,49 @@ function Positioner.faceTarget(targetRoot)
 end
 
 function Positioner.teleport(force)
-    if not Active or Evading or TrashBusy or ResetInProgress or SafeTriggered
-        or not SelectedTarget or not isAlive(SelectedTarget) then return false end
-    local targetRoot, root, char = getHRP(SelectedTarget), getHRP(Player), Player.Character
-    local hum = speedHumanoid()
-    if not targetRoot or not root or not char or moveBlocked(hum) then return false end
-    local targetCF = Positioner.getBehindCFrame(targetRoot)
-    if not targetCF then return false end
-    local gap = (root.Position-targetCF.Position).Magnitude
-    if not force and gap <= CONFIG.POSITION_TOLERANCE then
-        Positioner.faceTarget(targetRoot)
-        return true
+    if not Active then return false, "скрипт остановлен" end
+    if not SelectedTarget or SelectedTarget.Parent ~= Players then
+        return false, "цель не выбрана или вышла"
     end
-    local ok = pcall(function()
+    if SafeTriggered or ResetInProgress then
+        return false, "активен сброс / безопасная зона"
+    end
+    if TrashBusy then return false, "операция с мусоркой" end
+    local char = Player.Character
+    local root = getHRP(Player)
+    local targetRoot = getHRP(SelectedTarget)
+    local hum = speedHumanoid()
+    if not char or not root or not hum or hum.Health <= 0 then
+        return false, "ожидание персонажа"
+    end
+    if not targetRoot or not isAlive(SelectedTarget) then
+        return false, "ожидание появления цели"
+    end
+    if root.Anchored then return false, "персонаж закреплён игрой" end
+    -- Do not block on Physics/FallingDown: these states are common in TSB.
+    -- Server authority still controls whether CFrame movement is accepted.
+    local targetCF = Positioner.getBehindCFrame(targetRoot)
+    if not targetCF then return false, "позиция цели недоступна" end
+    local gap = (root.Position - targetCF.Position).Magnitude
+    if not force and gap <= CONFIG.POSITION_TOLERANCE then
+        return true, "рядом с целью"
+    end
+    local ok, err = pcall(function()
+        -- PivotTo moves the whole character, instead of leaving body parts behind.
         char:PivotTo(targetCF)
         if force then
-            root.AssemblyLinearVelocity = Vector3.zero
+            root.AssemblyLinearVelocity = Vector3.new(0, root.AssemblyLinearVelocity.Y, 0)
             root.AssemblyAngularVelocity = Vector3.zero
         end
     end)
-    return ok
+    if not ok then
+        -- Fallback for experiences that temporarily reject model pivots.
+        local fallbackOK = pcall(function() root.CFrame = targetCF end)
+        if not fallbackOK then
+            return false, "ошибка перемещения: " .. tostring(err):sub(1, 70)
+        end
+    end
+    return true, "попытка TP выполнена"
 end
 
 local function teleportToOpponent(opponent, distance, force)
@@ -1643,7 +1684,7 @@ local function teleportToOpponent(opponent, distance, force)
     local dst = Positioner.getBehindCFrame(targetRoot, distance)
     if not dst then return false end
     if not force and (root.Position - dst.Position).Magnitude <= CONFIG.POSITION_TOLERANCE then
-        Positioner.faceTarget(targetRoot)
+        if not (CONFIG.AIM_ENABLED and AimTarget) then Positioner.faceTarget(targetRoot) end
         return true
     end
     return pcall(function()
@@ -1682,145 +1723,135 @@ function UpdateStatus()
         end
     else
         if SelectedTarget then
-            StatusLabel.Text = "Цель выбрана • нажми ПРЕСЛЕДОВАТЬ"
+            StatusLabel.Text = "Цель выбрана • нажми START"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         else
-            StatusLabel.Text = "Нажми на цель — непрерывное преследование"
+            StatusLabel.Text = "Выбери игрока → START"
             StatusLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
         end
     end
 end
 
 -- ============================================================
--- PLAYER LIST
+-- PLAYER LIST: selection is independent from START.
+-- Avatar thumbnails are cached; refreshing the list does not issue repeated downloads.
 -- ============================================================
+local AvatarCache = {}
 local function RefreshPlayerList()
-    for _, child in pairs(PlayerScrollFrame:GetChildren()) do
-        child:Destroy()
+    for _, child in ipairs(PlayerScrollFrame:GetChildren()) do
+        if child:IsA("GuiObject") then child:Destroy() end
     end
     PlayerButtons = {}
-    local PlayerList = Players:GetPlayers()
-    table.sort(PlayerList, function(a, b) return a.Name:lower() < b.Name:lower() end)
-    local yPosition = 4
-    for _, player in ipairs(PlayerList) do
-        if player ~= Player then
-            local PlayerEntry = Instance.new("Frame")
-            PlayerEntry.Size = UDim2.new(1, -7, 0, 32)
-            PlayerEntry.Position = UDim2.new(0, 4, 0, yPosition)
-            PlayerEntry.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-            PlayerEntry.BorderSizePixel = 0
-            PlayerEntry.Parent = PlayerScrollFrame
+    local all = Players:GetPlayers()
+    table.sort(all, function(a, b)
+        return a.DisplayName:lower() < b.DisplayName:lower()
+    end)
+    local y = 4
+    for _, opponent in ipairs(all) do
+        if opponent ~= Player then
+            local entry = Instance.new("TextButton")
+            entry.Name = "User_" .. tostring(opponent.UserId)
+            entry.Text = ""
+            entry.Size = UDim2.new(1, -9, 0, 49)
+            entry.Position = UDim2.fromOffset(3, y)
+            entry.BorderSizePixel = 0
+            entry.AutoButtonColor = true
+            entry.BackgroundColor3 = SelectedTarget == opponent
+                and Color3.fromRGB(20, 86, 82) or Color3.fromRGB(37, 44, 60)
+            entry.Parent = PlayerScrollFrame
+            Instance.new("UICorner", entry).CornerRadius = UDim.new(0, 7)
 
-            local EntryCorner = Instance.new("UICorner")
-            EntryCorner.CornerRadius = UDim.new(0, 4)
-            EntryCorner.Parent = PlayerEntry
+            local mark = Instance.new("TextLabel")
+            mark.Name = "SelectedMark"
+            mark.Size = UDim2.fromOffset(23, 23)
+            mark.Position = UDim2.new(0, 6, 0.5, -11)
+            mark.BackgroundColor3 = Color3.fromRGB(21, 29, 43)
+            mark.Text = SelectedTarget == opponent and "✓" or ""
+            mark.TextColor3 = Color3.fromRGB(71, 246, 170)
+            mark.TextSize = 18
+            mark.Font = Enum.Font.SourceSansBold
+            mark.ZIndex = 2
+            mark.Parent = entry
+            Instance.new("UICorner", mark).CornerRadius = UDim.new(0, 5)
 
-            local Checkbox = Instance.new("TextButton")
-            Checkbox.Size = UDim2.fromOffset(23, 23)
-            Checkbox.Position = UDim2.new(0, 4, 0.5, -11)
-            Checkbox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-            Checkbox.BorderSizePixel = 0
-            Checkbox.Text = ""
-            Checkbox.Parent = PlayerEntry
+            -- Display name on the left; unique username on the right.
+            -- Do not embed, cache or show any personal/account identifiers elsewhere.
+            local display = Instance.new("TextLabel")
+            display.Name = "DisplayName"
+            display.Size = UDim2.new(0.42, -25, 0, 37)
+            display.Position = UDim2.new(0, 34, 0.5, -19)
+            display.BackgroundTransparency = 1
+            display.Text = opponent.DisplayName
+            display.Font = Enum.Font.SourceSansBold
+            display.TextSize = 12
+            display.TextXAlignment = Enum.TextXAlignment.Left
+            display.TextColor3 = Color3.fromRGB(236, 245, 252)
+            display.TextTruncate = Enum.TextTruncate.AtEnd
+            display.ZIndex = 2
+            display.Parent = entry
 
-            local CheckCorner = Instance.new("UICorner")
-            CheckCorner.CornerRadius = UDim.new(0, 3)
-            CheckCorner.Parent = Checkbox
+            local username = Instance.new("TextLabel")
+            username.Name = "Username"
+            username.Size = UDim2.new(0.58, -48, 0, 37)
+            username.Position = UDim2.new(0.42, 9, 0.5, -19)
+            username.BackgroundTransparency = 1
+            username.Text = "@" .. opponent.Name
+            username.Font = Enum.Font.SourceSans
+            username.TextSize = 11
+            username.TextXAlignment = Enum.TextXAlignment.Right
+            username.TextColor3 = Color3.fromRGB(145, 191, 218)
+            username.TextTruncate = Enum.TextTruncate.AtEnd
+            username.ZIndex = 2
+            username.Parent = entry
 
-            local Checkmark = Instance.new("TextLabel")
-            Checkmark.Size = UDim2.new(1, 0, 1, 0)
-            Checkmark.BackgroundTransparency = 1
-            Checkmark.Text = "✓"
-            Checkmark.TextColor3 = Color3.fromRGB(0, 255, 0)
-            Checkmark.TextSize = 12
-            Checkmark.Font = Enum.Font.SourceSansBold
-            Checkmark.Visible = (SelectedTarget == player)
-            Checkmark.Parent = Checkbox
-
-            -- DisplayName (nickname) first, then immutable @username.
-            -- Both labels truncate instead of overflowing on small screens.
-            local NameLabel = Instance.new("TextLabel")
-            NameLabel.Size = UDim2.new(0.48, -11, 1, 0)
-            NameLabel.Position = UDim2.new(0, 34, 0, 0)
-            NameLabel.BackgroundTransparency = 1
-            NameLabel.Text = tostring(player.DisplayName)
-            NameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-            NameLabel.TextSize = 12
-            NameLabel.Font = Enum.Font.SourceSansBold
-            NameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            NameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            NameLabel.Parent = PlayerEntry
-
-            local UsernameLabel = Instance.new("TextLabel")
-            UsernameLabel.Name = "Username"
-            UsernameLabel.Size = UDim2.new(0.52, -29, 1, 0)
-            UsernameLabel.Position = UDim2.new(0.48, 17, 0, 0)
-            UsernameLabel.BackgroundTransparency = 1
-            UsernameLabel.Text = "@" .. tostring(player.Name)
-            UsernameLabel.TextColor3 = Color3.fromRGB(160, 204, 222)
-            UsernameLabel.TextSize = 10
-            UsernameLabel.Font = Enum.Font.SourceSans
-            UsernameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            UsernameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            UsernameLabel.Parent = PlayerEntry
-
-            local Avatar = Instance.new("ImageLabel")
-            Avatar.Name = "PlayerAvatar"
-            Avatar.Size = UDim2.fromOffset(23, 23)
-            Avatar.Position = UDim2.new(1, -26, 0.5, -12)
-            Avatar.BackgroundColor3 = Color3.fromRGB(28, 44, 60)
-            Avatar.BorderSizePixel = 0
-            Avatar.ScaleType = Enum.ScaleType.Crop
-            Avatar.Parent = PlayerEntry
-
-            local AvatarCorner = Instance.new("UICorner")
-            AvatarCorner.CornerRadius = UDim.new(1, 0)
-            AvatarCorner.Parent = Avatar
-
-            task.spawn(function()
-                local ok, url = pcall(function()
-                    return Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+            local avatar = Instance.new("ImageLabel")
+            avatar.Name = "Avatar"
+            avatar.Size = UDim2.fromOffset(37, 37)
+            avatar.Position = UDim2.new(1, -41, 0.5, -18)
+            avatar.BackgroundColor3 = Color3.fromRGB(27, 63, 83)
+            avatar.BorderSizePixel = 0
+            avatar.ScaleType = Enum.ScaleType.Crop
+            avatar.ZIndex = 2
+            avatar.Parent = entry
+            avatar.Image = "rbxthumb://type=AvatarHeadShot&id=" .. tostring(opponent.UserId)
+                .. "&w=48&h=48"
+            Instance.new("UICorner", avatar).CornerRadius = UDim.new(1, 0)
+            local cached = AvatarCache[opponent.UserId]
+            if cached then
+                avatar.Image = cached
+            else
+                task.spawn(function()
+                    local ok, imageUrl = pcall(function()
+                        return Players:GetUserThumbnailAsync(
+                            opponent.UserId, Enum.ThumbnailType.HeadShot,
+                            Enum.ThumbnailSize.Size48x48)
+                    end)
+                    if ok and imageUrl then
+                        AvatarCache[opponent.UserId] = imageUrl
+                        if avatar.Parent then avatar.Image = imageUrl end
+                    end
                 end)
-                if ok and Avatar.Parent then Avatar.Image = url end
-            end)
+            end
 
-            local ClickArea = Instance.new("TextButton")
-            ClickArea.Size = UDim2.new(1, 0, 1, 0)
-            ClickArea.BackgroundTransparency = 1
-            ClickArea.Text = ""
-            ClickArea.ZIndex = 2
-            ClickArea.Parent = PlayerEntry
-
-            ClickArea.Activated:Connect(function()
-                -- Selection must never wait for a follower tick or a UI refresh.
-                if StopRandomCycle then StopRandomCycle(true) end
+            entry.Activated:Connect(function()
+                if not Active then return end
                 if BackstabActive and StopBackstab then StopBackstab() end
-                if SelectedTarget == player then
-                    if BackstabActive and StopBackstab then StopBackstab() end
-                    SelectedTarget = nil
-                    Checkmark.Visible = false
-                    UpdateStatus()
-                    return
-                end
-                SelectedTarget = player
+                if StopRandomCycle then StopRandomCycle(false) end
+                SelectedTarget = opponent
                 for _, data in pairs(PlayerButtons) do
-                    data.Checkmark.Visible = false
+                    data.entry.BackgroundColor3 = Color3.fromRGB(37, 44, 60)
+                    data.mark.Text = ""
                 end
-                Checkmark.Visible = true
-                -- Starts an indefinite follow immediately, same input event.
-                -- START remains available to resume follow after STOP.
-                if StartBackstab then StartBackstab() end
-                UpdateStatus()
+                entry.BackgroundColor3 = Color3.fromRGB(20, 86, 82)
+                mark.Text = "✓"
+                StatusLabel.Text = "Цель выбрана. Нажми START для постоянного TP"
+                StatusLabel.TextColor3 = Color3.fromRGB(142, 242, 191)
             end)
-
-            PlayerButtons[player.Name] = {
-                Entry = PlayerEntry,
-                Checkmark = Checkmark
-            }
-            yPosition = yPosition + 36
+            PlayerButtons[opponent.UserId] = {entry = entry, mark = mark}
+            y = y + 54
         end
     end
-    PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, yPosition + 4)
+    PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, y + 4)
 end
 
 -- ============================================================
@@ -2179,7 +2210,8 @@ local function trashReturnOnce()
 end
 
 -- ============================================================
--- AIM: manual lock only, avatar rotation without camera or target highlights.
+-- AIM: manual screen-center acquisition; camera + avatar track only that player.
+-- The circle can be dragged without changing the target or toggling AIM.
 -- ============================================================
 local function clearAimTarget()
     AimTarget = nil
@@ -2191,26 +2223,28 @@ end
 local function acquireAimTarget()
     local camera = workspace.CurrentCamera
     if not camera then return false end
-    local size = camera.ViewportSize
-    local mid = size * 0.5
-    local best, bestPixels = nil, math.min(size.X, size.Y) * 0.22
+    local center = camera.ViewportSize * 0.5
+    local radius = math.min(center.X, center.Y) * 0.48
+    local nearest, nearestDist = nil, radius
     for _, enemy in ipairs(Players:GetPlayers()) do
         if enemy ~= Player and isAlive(enemy) then
             local root = getHRP(enemy)
             if root then
-                local screenPoint, onscreen = camera:WorldToViewportPoint(root.Position)
-                if onscreen and screenPoint.Z > 0 then
-                    local pixels = (Vector2.new(screenPoint.X, screenPoint.Y) - mid).Magnitude
-                    if pixels < bestPixels then best, bestPixels = enemy, pixels end
+                local point, visible = camera:WorldToViewportPoint(root.Position)
+                if visible and point.Z > 0 then
+                    local dist = (Vector2.new(point.X, point.Y) - center).Magnitude
+                    if dist < nearestDist then
+                        nearest, nearestDist = enemy, dist
+                    end
                 end
             end
         end
     end
-    if not best then return false end
-    clearAimTarget()
-    AimTarget = best
-    AimHud.BackgroundColor3 = Color3.fromRGB(21, 130, 112)
-    AimHudStroke.Color = Color3.fromRGB(108, 236, 255)
+    if not nearest then return false end
+    -- One-time acquisition. Never change until AIM OFF or manual unlock.
+    AimTarget = nearest
+    AimHud.BackgroundColor3 = Color3.fromRGB(20, 127, 110)
+    AimHudStroke.Color = Color3.fromRGB(118, 244, 195)
     AimHud.Text = "●"
     return true
 end
@@ -2222,43 +2256,61 @@ local function refreshRotationLock()
         if PreviousAutoRotate ~= nil and LockedHumanoid.Parent then
             pcall(function() LockedHumanoid.AutoRotate = PreviousAutoRotate end)
         end
-        LockedHumanoid = nil
-        PreviousAutoRotate = nil
+        LockedHumanoid, PreviousAutoRotate = nil, nil
     end
     if not hum then return end
     local shouldLock = BackstabActive or
         (RandomCycle.enabled and RandomCycle.phase == "chase") or
-        (CONFIG.AIM_ENABLED and AimTarget and isAlive(AimTarget))
+        (CONFIG.AIM_ENABLED and AimTarget ~= nil)
     if shouldLock then
         if LockedHumanoid ~= hum then
-            LockedHumanoid = hum
-            PreviousAutoRotate = hum.AutoRotate
+            LockedHumanoid, PreviousAutoRotate = hum, hum.AutoRotate
         end
         if hum.AutoRotate then hum.AutoRotate = false end
     elseif LockedHumanoid == hum then
         if PreviousAutoRotate ~= nil then
             pcall(function() hum.AutoRotate = PreviousAutoRotate end)
         end
-        LockedHumanoid = nil
-        PreviousAutoRotate = nil
+        LockedHumanoid, PreviousAutoRotate = nil, nil
     end
 end
+
 local function updateAim()
     if not Active then return end
-    if CONFIG.AIM_ENABLED and AimTarget and not isAlive(AimTarget) then
-        clearAimTarget()
-    end
-    -- Suppress Shift Lock's avatar autorotation while selected AIM/follow runs.
-    -- Only avatar HRP faces the opponent; never move the camera.
     refreshRotationLock()
+    -- A fixed manual lock always takes priority; follow cannot steal it.
+    if CONFIG.AIM_ENABLED and AimTarget then
+        local root = getHRP(AimTarget)
+        if root and isAlive(AimTarget) then
+            -- The camera is aligned after Roblox' camera controller, so Shift
+            -- Lock cannot silently steal the lock. Position stays unchanged.
+            local camera = workspace.CurrentCamera
+            if camera and camera.CameraType ~= Enum.CameraType.Scriptable then
+                local point = reliableTargetPose(root)
+                if point then
+                    local origin = camera.CFrame.Position
+                    local delta = point - origin
+                    if delta.Magnitude > 0.05 then
+                        pcall(function()
+                            camera.CFrame = CFrame.lookAt(origin, point)
+                        end)
+                    end
+                end
+            end
+            Positioner.faceTarget(root)
+            return
+        end
+        -- Preserve same player through temporary ragdoll / respawn.
+        -- We never silently select another opponent.
+        return
+    end
+    -- Without a manual lock, TP modes can orient the avatar as before.
     local target = nil
     if BackstabActive and SelectedTarget and isAlive(SelectedTarget) then
         target = SelectedTarget
     elseif RandomCycle.enabled and RandomCycle.phase == "chase" and
         RandomCycle.target and isAlive(RandomCycle.target) then
         target = RandomCycle.target
-    elseif CONFIG.AIM_ENABLED and AimTarget and isAlive(AimTarget) then
-        target = AimTarget
     end
     if target then
         local root = getHRP(target)
@@ -2272,90 +2324,94 @@ local function setAimEnabled(enabled)
     paintToggle(AimToggle, "AIM LOCK", enabled)
     clearAimTarget()
     if enabled then
-        StatusLabel.Text = "AIM: наведи прицел и нажми кружок слева"
+        StatusLabel.Text = "AIM включён: целься по игроку и нажми кружок"
     else
         StatusLabel.Text = "AIM выключен"
     end
 end
-
 AimToggle.Activated:Connect(function()
     setAimEnabled(not CONFIG.AIM_ENABLED)
 end)
 AimHud.Activated:Connect(function()
     if not CONFIG.AIM_ENABLED or os.clock() < aimSuppressClickUntil then return end
-    -- Keep current lock until the player explicitly taps the circle.
     if AimTarget then
         clearAimTarget()
-        StatusLabel.Text = "AIM: unlocked; look at target and tap again"
+        StatusLabel.Text = "AIM сброшен: нацелься и нажми кружок"
     elseif acquireAimTarget() then
-        StatusLabel.Text = "AIM locked: " .. AimTarget.Name
+        StatusLabel.Text = "AIM: цель зафиксирована до выключения"
     else
-        StatusLabel.Text = "AIM: no player in center of screen"
+        StatusLabel.Text = "AIM: наведи центр экрана на игрока"
     end
 end)
-RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 5, updateAim)
+RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10, updateAim)
 
 -- ============================================================
 -- START / STOP
 -- ============================================================
 StartBackstab = function()
-    if BackstabActive then
-        Positioner.teleport(true)
+    if not Active then return end
+    if not SelectedTarget or SelectedTarget.Parent ~= Players then
+        StatusLabel.Text = "Сначала выбери игрока в списке"
         return
     end
-    if not SelectedTarget then
-        StatusLabel.Text = "No target selected!"
-        return
-    end
-    if not isAlive(SelectedTarget) or not getHRP(SelectedTarget) then
-        StatusLabel.Text = "Target is not ready"
-        return
-    end
-
-    -- Execute the first teleport immediately on START, before notifications
-    -- or other potentially expensive appearance work.
+    -- Stop conflicting movement controllers first, not AFTER a failed TP.
     if StopRandomCycle then StopRandomCycle(false) end
-    local firstTeleportOk = Positioner.teleport(true)
-    if not firstTeleportOk then
-        StatusLabel.Text = "TP not available: check character/target"
-        return
-    end
-    BackstabActive = true
-    -- Target follow has precedence over manual AIM lock. No forced camera turns.
-    UpdateStatus()
-
+    if TrashBusy or TrashAutoEnabled then stopTrash() end
     if CONFIG.SAFE_ZONE and SafeTriggered then
         removeSafeZone(false)
         CONFIG.SAFE_ZONE = false
         paintToggle(SafeToggle, "SAVE ZONA", false)
     end
-
-    if CONFIG.INVISIBLE then
-        Invisibility.apply()
+    if PositionConnection then
+        PositionConnection:Disconnect()
+        PositionConnection = nil
     end
-
-    PositionConnection = RunService.Heartbeat:Connect(function()
+    BackstabActive = true
+    FollowWanted = true
+    local lastFeedback = -math.huge
+    local lastReason = nil
+    local function tick()
         if not Active or not BackstabActive then return end
-        -- The target must stay alive. Never silently attach to respawn.
-        if not SelectedTarget or not isAlive(SelectedTarget) or not getHRP(SelectedTarget) then
+        if not SelectedTarget or SelectedTarget.Parent ~= Players then
             StopBackstab()
-            StatusLabel.Text = "TARGET DEAD / LEFT — press START for a new target"
+            StatusLabel.Text = "Игрок вышел • выбери новую цель"
             return
         end
-        pcall(Positioner.teleport, false) -- every Heartbeat, no artificial timer
-    end)
+        local ok, reason = Positioner.teleport(false)
+        if ok then
+            if lastReason ~= "tracking" then
+                StatusLabel.Text = "ПРЕСЛЕДОВАНИЕ: активно"
+                StatusLabel.TextColor3 = Color3.fromRGB(109, 244, 169)
+                lastReason = "tracking"
+            end
+        elseif reason ~= lastReason or os.clock() - lastFeedback > 1.5 then
+            StatusLabel.Text = "TP: " .. tostring(reason)
+            StatusLabel.TextColor3 = Color3.fromRGB(255, 182, 105)
+            lastReason = reason
+            lastFeedback = os.clock()
+        end
+    end
+    -- START always activates a Heartbeat retry loop, even when first TP fails.
+    PositionConnection = RunService.Heartbeat:Connect(tick)
+    local ok, reason = Positioner.teleport(true)
+    if not ok then
+        StatusLabel.Text = "TP ожидает: " .. tostring(reason)
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 182, 105)
+    else
+        StatusLabel.Text = "ПРЕСЛЕДОВАНИЕ: активно"
+        StatusLabel.TextColor3 = Color3.fromRGB(109, 244, 169)
+    end
+    if CONFIG.INVISIBLE then Invisibility.apply() end
 end
 
-StopBackstab = function()
-    if not BackstabActive then return end
+StopBackstab = function(preserveFollow)
+    if not preserveFollow then FollowWanted = false end
     BackstabActive = false
     if PositionConnection then
         PositionConnection:Disconnect()
         PositionConnection = nil
     end
-    if not CONFIG.INVISIBLE then
-        Invisibility.remove()
-    end
+    if not CONFIG.INVISIBLE then Invisibility.remove() end
     UpdateStatus()
 end
 
@@ -2885,12 +2941,12 @@ Shutdown = function()
         if conn then safe(function() conn:Disconnect() end) end
     end
     safe(function() if HiddenFolder then HiddenFolder:Destroy() end end)
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V20_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V20_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V21_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V21_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V20_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V21_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
@@ -2901,12 +2957,14 @@ end))
 
 table.insert(CleanupConnections, Players.PlayerRemoving:Connect(function(player)
     if RandomCycle.target == player then RandomCycle.target = nil end
-    if AimTarget == player then clearAimTarget() end
+    if AimTarget == player then
+        clearAimTarget()
+        StatusLabel.Text = "AIM: выбранный игрок вышел"
+    end
     if SelectedTarget == player then
         if BackstabActive and StopBackstab then StopBackstab() end
         SelectedTarget = nil
     end
-    task.wait(0.1)
     RefreshPlayerList()
     UpdateStatus()
 end))
@@ -2916,15 +2974,15 @@ end))
 -- ============================================================
 CharacterConnection = Player.CharacterAdded:Connect(function(character)
     if StopRandomCycle then StopRandomCycle(false) end
-    local resumeFollow = BackstabActive and SelectedTarget ~= nil
-    if BackstabActive and StopBackstab then StopBackstab() end
+    local resumeFollow = FollowWanted and SelectedTarget ~= nil
+    if BackstabActive and StopBackstab then StopBackstab(true) end
     -- Keep the long-running AUTO toggle armed across respawns.
     if not TrashAutoEnabled then
         TrashToken = TrashToken + 1
         TrashBusy = false
         TrashPhase = "idle"
     end
-    clearAimTarget()
+    -- Keep AIM lock on the same player after our own respawn.
     OriginalWalkSpeed = nil
     SpeedHumanoid = nil
     CurrentSpeedWritten = nil
@@ -2941,8 +2999,8 @@ CharacterConnection = Player.CharacterAdded:Connect(function(character)
             if not Active or Player.Character ~= character then return end
             local hum = character:WaitForChild("Humanoid", 10)
             local root = character:WaitForChild("HumanoidRootPart", 10)
-            if hum and root and isAlive(SelectedTarget) and StartBackstab then
-                StartBackstab()
+            if hum and root and FollowWanted and SelectedTarget and StartBackstab then
+                StartBackstab() -- target may be respawning too; Heartbeat will retry
             end
         end)
     end
@@ -2965,6 +3023,7 @@ end
 -- ============================================================
 RefreshPlayerList()
 UpdateStatus()
+Visual.start()  -- default performance mode ON; reversible in Extras.
 paintOptimizeButton()
 paintDistanceButton()
 -- No popup during startup; all controls are visible in the panel.
