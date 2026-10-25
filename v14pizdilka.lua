@@ -1,4 +1,4 @@
--- TSB DELTA v24 | restored complete feature set, mobile interface
+-- TSB DELTA v27 | restored complete feature set, mobile interface
 -- Manual abilities only; persistent target chasing, optional external menu.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- FPS optimization is reversible and disabled by default; no ESP/outline.
@@ -51,188 +51,255 @@ local CONFIG = {
     RANDOM_CD1 = 18,
     RANDOM_CD2 = 21,
     RANDOM_TARGET_RANGE = 2.9,
+    WALL_PASS = false,
+    SOFT_INVIS = false,
+    SS_POSITIONING = false,
 }
 
 -- ============================================================
--- REVERSIBLE GRAPHICS + CONSERVATIVE COSMETIC DISTANCE CULLING
--- Roblox streaming is controlled by the experience/server: this does
--- NOT unload map geometry, physics, players or networked assets.
--- Only static non-collidable decoration can be locally hidden far away.
+-- FPS ULTRA: local, bounded graphics suppression and particle cleanup.
+-- Remote network packets / server scripts cannot be cleaned by a client.
+-- Never remove collision/physics/characters or call server remotes.
+-- Toggle ON/OFF restores reversible properties; particles already
+-- cleared from rendering cannot be recreated by the toggle.
 -- ============================================================
 local Visual = {}
 do
     local Lighting = game:GetService("Lighting")
     local state = {
-        wanted=false, active=false, conn=nil, addedConn=nil,
+        active=false, wanted=false, generation=0, addedConn=nil, lightConn=nil,
         originals=setmetatable({}, {__mode="k"}),
-        savedVisuals=setmetatable({}, {__mode="k"}),
-        candidates={}, seen=setmetatable({}, {__mode="k"}),
-        radius=CONFIG.VISUAL_RADIUS, distanceEnabled=CONFIG.VISUAL_DISTANCE_ENABLED,
-        generation=0
+        effects=setmetatable({}, {__mode="k"}),
+        seen=setmetatable({}, {__mode="k"}),
+        candidates={}, hidden=setmetatable({}, {__mode="k"}),
+        radius=CONFIG.VISUAL_RADIUS,
+        distanceEnabled=CONFIG.VISUAL_DISTANCE_ENABLED,
+        inspected=0, cleared=0, liveFX=0, sweeps=0,
     }
-    local function remember(obj, property, target)
-        local ok, old = pcall(function() return obj[property] end)
-        if not ok or old == target then return end
-        local original = state.originals[obj]
-        if not original then original = {}; state.originals[obj] = original end
-        if original[property] == nil then original[property] = old end
-        pcall(function() obj[property] = target end)
+    local fxTypes = {
+        ParticleEmitter=true, Trail=true, Beam=true, Smoke=true,
+        Fire=true, Sparkles=true,
+    }
+    local function alive(obj)
+        return obj and obj.Parent ~= nil
     end
-    local function optimizeEffect(obj)
-        if obj:IsA("BloomEffect") or obj:IsA("BlurEffect")
-           or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect")
-           or obj:IsA("ColorCorrectionEffect") then
-            remember(obj, "Enabled", false)
-        elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail")
-           or obj:IsA("Beam") or obj:IsA("Fire")
-           or obj:IsA("Smoke") or obj:IsA("Sparkles") then
-            -- Graphics-only change; keep combat bodies, hitboxes and physics.
-            remember(obj, "Enabled", false)
+    local function remember(obj, prop, value)
+        local ok, prev = pcall(function() return obj[prop] end)
+        if not ok or prev == value then return end
+        local saved = state.originals[obj]
+        if not saved then saved={}; state.originals[obj]=saved end
+        if saved[prop] == nil then saved[prop]=prev end
+        pcall(function() obj[prop]=value end)
+    end
+    local function playerAncestor(obj)
+        local p=obj
+        while p and p ~= workspace do
+            if p:IsA("Model") and p:FindFirstChildOfClass("Humanoid") then
+                return true
+            end
+            p=p.Parent
         end
+        return false
     end
-    local function isCosmeticPart(part)
-        if not part:IsA("BasePart") or not part.Anchored
-            or part.CanCollide or part.CanTouch or part.Transparency >= 0.95 then return false end
-        local current = part
-        while current and current ~= workspace do
-            if current:IsA("Model") and current:FindFirstChildOfClass("Humanoid") then return false end
-            local lower = current.Name:lower()
-            if lower:find("combat",1,true) or lower:find("hitbox",1,true)
-                or lower:find("projectile",1,true) or lower:find("effect",1,true)
-                or lower:find("attack",1,true) or lower:find("weapon",1,true)
-                or lower:find("dummy",1,true) or lower:find("npc",1,true)
-                then return false end
-            current = current.Parent
+    local function cosmeticPart(obj)
+        if not obj:IsA("BasePart") or not obj.Anchored or obj.CanCollide
+            or obj.CanTouch or obj.Transparency >= 0.98 then return false end
+        if playerAncestor(obj) then return false end
+        local p=obj
+        while p and p ~= workspace do
+            local name=string.lower(p.Name)
+            if name:find("hitbox",1,true) or name:find("combat",1,true)
+                or name:find("projectile",1,true) or name:find("attack",1,true)
+                or name:find("weapon",1,true) or name:find("dummy",1,true) then
+                return false
+            end
+            p=p.Parent
         end
         return true
     end
-    local function addCandidate(part)
-        if #state.candidates >= 850 or state.seen[part] or not isCosmeticPart(part) then return end
-        state.seen[part] = true
-        table.insert(state.candidates, part)
+    local function addCandidate(obj)
+        if state.seen[obj] or #state.candidates >= 950 then return end
+        if not cosmeticPart(obj) then return end
+        state.seen[obj]=true
+        state.candidates[#state.candidates+1]=obj
     end
-    local function restoreVisuals()
-        for part, original in pairs(state.savedVisuals) do
+    local function optimize(obj)
+        if not state.active or not alive(obj) then return end
+        local kind=obj.ClassName
+        if fxTypes[kind] then
+            if not state.effects[obj] then
+                state.effects[obj]=true
+                state.liveFX=state.liveFX+1
+            end
+            remember(obj,"Enabled",false)
+            if kind=="ParticleEmitter" or kind=="Trail" then
+                -- Flush visible particle/trail history instead of retaining it.
+                pcall(function() obj:Clear() end)
+                state.cleared=state.cleared+1
+            end
+        elseif obj:IsA("PostEffect") then
+            remember(obj,"Enabled",false)
+        elseif kind=="PointLight" or kind=="SpotLight" or kind=="SurfaceLight" then
+            if not playerAncestor(obj) then remember(obj,"Enabled",false) end
+        elseif obj:IsA("BasePart") then
+            if cosmeticPart(obj) then
+                remember(obj,"CastShadow",false)
+                if state.distanceEnabled then addCandidate(obj) end
+            end
+        elseif (kind=="Decal" or kind=="Texture") then
+            local parent=obj.Parent
+            if parent and cosmeticPart(parent) then
+                remember(obj,"Transparency",1)
+            end
+        end
+        state.inspected=state.inspected+1
+    end
+    local function restoreDistance()
+        for obj, old in pairs(state.hidden) do
             pcall(function()
-                if part.Parent and part.LocalTransparencyModifier == 1 then
-                    part.LocalTransparencyModifier = original
+                if alive(obj) and obj.LocalTransparencyModifier==1 then
+                    obj.LocalTransparencyModifier=old
                 end
             end)
         end
-        state.savedVisuals = setmetatable({}, {__mode="k"})
+        state.hidden=setmetatable({}, {__mode="k"})
     end
-    local function updateDistances()
-        if not state.distanceEnabled then
-            restoreVisuals()
-            return
-        end
-        local char = Player.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
+    local function distancePass()
+        if not state.distanceEnabled then return end
+        local character=Player.Character
+        local root=character and character:FindFirstChild("HumanoidRootPart")
         if not root then return end
-        local origin = root.Position
-        local farSq = (state.radius + 16) ^ 2
-        local nearSq = (state.radius - 10) ^ 2
-        for _, part in ipairs(state.candidates) do
-            if part.Parent and isCosmeticPart(part) then
-                local p = part.Position
-                local squared = (p.X-origin.X)^2 + (p.Y-origin.Y)^2 + (p.Z-origin.Z)^2
-                if squared > farSq then
-                    if state.savedVisuals[part] == nil then
-                        local ok, prev = pcall(function() return part.LocalTransparencyModifier end)
-                        if ok and prev < 1 then state.savedVisuals[part] = prev end
+        local p=root.Position
+        local far=(state.radius+15)^2
+        local near=(state.radius-10)^2
+        local out={}
+        for _,obj in ipairs(state.candidates) do
+            if alive(obj) and cosmeticPart(obj) then
+                out[#out+1]=obj
+                local q=obj.Position
+                local d=(p.X-q.X)^2+(p.Y-q.Y)^2+(p.Z-q.Z)^2
+                if d>far and state.hidden[obj]==nil then
+                    local ok,old=pcall(function() return obj.LocalTransparencyModifier end)
+                    if ok and old<1 then
+                        state.hidden[obj]=old
+                        pcall(function() obj.LocalTransparencyModifier=1 end)
                     end
-                    if state.savedVisuals[part] ~= nil then
-                        pcall(function() part.LocalTransparencyModifier = 1 end)
-                    end
-                elseif squared < nearSq and state.savedVisuals[part] ~= nil then
-                    local old = state.savedVisuals[part]
-                    pcall(function() if part.LocalTransparencyModifier == 1 then part.LocalTransparencyModifier = old end end)
-                    state.savedVisuals[part] = nil
+                elseif d<near and state.hidden[obj]~=nil then
+                    local old=state.hidden[obj]
+                    pcall(function()
+                        if obj.LocalTransparencyModifier==1 then
+                            obj.LocalTransparencyModifier=old
+                        end
+                    end)
+                    state.hidden[obj]=nil
                 end
-            elseif state.savedVisuals[part] ~= nil then
-                local old = state.savedVisuals[part]
-                pcall(function() if part.LocalTransparencyModifier == 1 then part.LocalTransparencyModifier = old end end)
-                state.savedVisuals[part] = nil
+            else
+                state.seen[obj]=nil
+                state.hidden[obj]=nil
             end
         end
+        state.candidates=out -- prune destroyed references, avoid growing forever
+    end
+    local function auditFX()
+        local total=0
+        for obj in pairs(state.effects) do
+            if alive(obj) then
+                total=total+1
+                if total<=2600 then
+                    -- Game code may re-enable the same emitter between attacks.
+                    local ok,enabled=pcall(function() return obj.Enabled end)
+                    if ok and enabled then
+                        pcall(function() obj.Enabled=false end)
+                    end
+                    -- :Emit() can create particles even when Enabled is false.
+                    -- Periodic capped clearing prevents lingering emitted particles.
+                    if total<=650 and (obj:IsA("ParticleEmitter") or obj:IsA("Trail")) then
+                        pcall(function() obj:Clear() end)
+                        state.cleared=state.cleared+1
+                    end
+                end
+            else
+                state.effects[obj]=nil
+            end
+        end
+        state.liveFX=total
+        state.sweeps=state.sweeps+1
     end
     local function scanGradually(token)
-        -- Traverse incrementally; no full-map GetDescendants() allocation.
-        local queue = workspace:GetChildren()
-        local index, scanned = 1, 0
-        while state.active and state.generation == token and index <= #queue
-            and scanned < 16000 do
-            local obj = queue[index]
-            index = index + 1
-            scanned = scanned + 1
-            if obj and obj.Parent then
-                if obj:IsA("BasePart") then
-                    addCandidate(obj)
-                    if isCosmeticPart(obj) then remember(obj, "CastShadow", false) end
-                else
-                    optimizeEffect(obj)
-                end
-                if obj ~= workspace.Terrain and obj ~= workspace.CurrentCamera then
-                    for _, child in ipairs(obj:GetChildren()) do
-                        queue[#queue + 1] = child
+        local queue=workspace:GetChildren()
+        for _,obj in ipairs(Lighting:GetChildren()) do queue[#queue+1]=obj end
+        local n=1
+        local tail=#queue
+        local inspected=0
+        while state.active and state.generation==token and n<=tail and inspected<30000 do
+            local obj=queue[n]
+            queue[n]=nil -- keep the breadth-first queue memory-bounded
+            n=n+1
+            if alive(obj) then
+                pcall(optimize,obj)
+                if obj~=workspace.CurrentCamera then
+                    for _,child in ipairs(obj:GetChildren()) do
+                        tail=tail+1
+                        queue[tail]=child
                     end
                 end
             end
-            if scanned % 160 == 0 then task.wait() end
+            inspected=inspected+1
+            if inspected%90==0 then task.wait() end
         end
     end
-    Visual.setRadius = function(value)
-        state.radius = math.clamp(math.floor(value + 0.5), 80, 300)
-    end
-    Visual.setDistanceEnabled = function(enabled)
-        state.distanceEnabled = enabled and true or false
-        if not state.distanceEnabled then restoreVisuals() end
-    end
-    Visual.start = function()
-        state.wanted = true
+    Visual.start=function()
+        state.wanted=true
         if state.active then return end
-        state.active = true
-        state.generation = state.generation + 1
-        local token = state.generation
-        remember(Lighting, "GlobalShadows", false)
-        for _, obj in ipairs(Lighting:GetDescendants()) do optimizeEffect(obj) end
-        state.conn = Lighting.DescendantAdded:Connect(function(obj)
-            if state.active then optimizeEffect(obj) end
+        state.active=true
+        state.generation=state.generation+1
+        local token=state.generation
+        remember(Lighting,"GlobalShadows",false)
+        state.addedConn=workspace.DescendantAdded:Connect(function(obj)
+            pcall(optimize,obj)
         end)
-        state.addedConn = workspace.DescendantAdded:Connect(function(obj)
-            if not state.active then return end
-            if obj:IsA("BasePart") then
-                if state.distanceEnabled then addCandidate(obj) end
-                if isCosmeticPart(obj) then remember(obj, "CastShadow", false) end
-            else
-                optimizeEffect(obj)
-            end
+        state.lightConn=Lighting.DescendantAdded:Connect(function(obj)
+            pcall(optimize,obj)
         end)
-        task.spawn(function() scanGradually(token) end)
+        task.spawn(scanGradually,token)
         task.spawn(function()
-            while state.active and state.generation == token do
-                pcall(updateDistances)
-                task.wait(2.4) -- never walks all candidates per frame
+            local loops=0
+            while state.active and state.generation==token do
+                loops=loops+1
+                pcall(auditFX)
+                if loops%3==0 then pcall(distancePass) end
+                task.wait(2.5) -- never walk the whole map each frame
             end
         end)
     end
-    Visual.stop = function()
-        state.wanted = false
-        state.active = false
-        state.generation = state.generation + 1
-        if state.conn then state.conn:Disconnect(); state.conn=nil end
-        if state.addedConn then state.addedConn:Disconnect(); state.addedConn=nil end
-        restoreVisuals()
-        for obj, props in pairs(state.originals) do
-            for property, previous in pairs(props) do
-                pcall(function() obj[property] = previous end)
+    Visual.stop=function()
+        state.wanted=false
+        state.active=false
+        state.generation=state.generation+1
+        if state.addedConn then state.addedConn:Disconnect();state.addedConn=nil end
+        if state.lightConn then state.lightConn:Disconnect();state.lightConn=nil end
+        restoreDistance()
+        for obj,properties in pairs(state.originals) do
+            if alive(obj) then
+                for property,original in pairs(properties) do
+                    pcall(function() obj[property]=original end)
+                end
             end
         end
-        state.originals = setmetatable({}, {__mode="k"})
-        state.candidates = {}
-        state.seen = setmetatable({}, {__mode="k"})
+        state.originals=setmetatable({}, {__mode="k"})
+        state.effects=setmetatable({}, {__mode="k"})
+        state.candidates={}
+        state.seen=setmetatable({}, {__mode="k"})
+        state.liveFX=0
     end
-    Visual.state = state
+    Visual.setRadius=function(v)
+        state.radius=math.clamp(math.floor(v+0.5),80,300)
+    end
+    Visual.setDistanceEnabled=function(enabled)
+        state.distanceEnabled=enabled==true
+        if not state.distanceEnabled then restoreDistance() end
+    end
+    Visual.state=state
 end
 
 -- ============================================================
@@ -245,7 +312,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
+    for _, key in ipairs({"__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -260,7 +327,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27") then
                 gui:Destroy()
             end
         end
@@ -268,7 +335,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_Delta_V24"
+ScreenGui.Name = "TSB_Delta_V27"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -314,7 +381,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB DELTA · v24"
+Title.Text = "TSB DELTA · v27"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
@@ -588,7 +655,7 @@ do
 -- Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB DELTA · v24"
+Title.Text = "TSB DELTA · v27"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -687,32 +754,46 @@ TargetScroll.Size = UDim2.fromScale(1, 1)
 TargetScroll.ScrollBarThickness = 3
 TargetScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 TargetScroll.Parent = TargetPage
-local targetListHeight = math.max(119, PAGE_H - 174)
-relayout(SelectionFrame, TargetScroll, 8, 8, innerW, targetListHeight)
+local targetListHeight = math.max(100, PAGE_H - 210)
+local RosterLabel = infoLabel(TargetScroll, "ИГРОКИ: загрузка…", 12, 25)
+RosterLabel.Size = UDim2.fromOffset(halfW - 4, 25)
+RosterLabel.Font = Enum.Font.SourceSansBold
+RosterLabel.TextColor3 = Color3.fromRGB(166, 237, 255)
+local RefreshPlayersButton = Instance.new("TextButton")
+RefreshPlayersButton.Name = "RefreshPlayers"
+RefreshPlayersButton.Text = "↻ ОБНОВИТЬ"
+RefreshPlayersButton.Font = Enum.Font.SourceSansBold
+RefreshPlayersButton.TextSize = 12
+RefreshPlayersButton.TextColor3 = Color3.fromRGB(234, 255, 255)
+RefreshPlayersButton.BackgroundColor3 = Color3.fromRGB(24, 114, 135)
+RefreshPlayersButton.BorderSizePixel = 0
+relayout(RefreshPlayersButton, TargetScroll, rightX, 5, rightW, 29)
+Instance.new("UICorner", RefreshPlayersButton).CornerRadius = UDim.new(0, 7)
+relayout(SelectionFrame, TargetScroll, 8, 40, innerW, targetListHeight)
 PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
-relayout(StartButton, TargetScroll, 8, targetListHeight + 16, halfW, 35)
-relayout(StopButton, TargetScroll, rightX, targetListHeight + 16, rightW, 35)
+relayout(StartButton, TargetScroll, 8, targetListHeight + 48, halfW, 35)
+relayout(StopButton, TargetScroll, rightX, targetListHeight + 48, rightW, 35)
 StartButton.Text = "▶ START / TP"
 StopButton.Text = "ОСТАНОВИТЬ"
 StartButton.TextSize = 11
 StopButton.TextSize = 11
-relayout(TpOnceButton, TargetScroll, 8, targetListHeight + 58, halfW, 34)
-relayout(RandomTPButton, TargetScroll, rightX, targetListHeight + 58, rightW, 34)
+relayout(TpOnceButton, TargetScroll, 8, targetListHeight + 90, halfW, 34)
+relayout(RandomTPButton, TargetScroll, rightX, targetListHeight + 90, rightW, 34)
 TpOnceButton.Text = "TP СЕЙЧАС"
 RandomTPButton.Text = "TP РАНДОМ"
-relayout(DistanceLabel, TargetScroll, 8, targetListHeight + 100, halfW, 34)
+relayout(DistanceLabel, TargetScroll, 8, targetListHeight + 132, halfW, 34)
 DistanceLabel.Text = "ДИСТАНЦИЯ"
-relayout(DistanceInput, TargetScroll, rightX, targetListHeight + 100, rightW, 34)
+relayout(DistanceInput, TargetScroll, rightX, targetListHeight + 132, rightW, 34)
 local LeadToggle = Instance.new("TextButton")
 LeadToggle.Name = "LeadToggle"
 LeadToggle.BorderSizePixel = 0
 LeadToggle.Font = Enum.Font.SourceSansBold
 LeadToggle.TextSize = 12
 LeadToggle.TextColor3 = Color3.new(1, 1, 1)
-relayout(LeadToggle, TargetScroll, 8, targetListHeight + 142, innerW, 35)
+relayout(LeadToggle, TargetScroll, 8, targetListHeight + 174, innerW, 35)
 Instance.new("UICorner", LeadToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(TargetScroll, "Выбери игрока (галочка), затем START. TP повторяется непрерывно; STOP прекращает. Автоатак нет.", targetListHeight + 185, 48)
-TargetScroll.CanvasSize = UDim2.fromOffset(0, targetListHeight + 250)
+infoLabel(TargetScroll, "Выбери игрока (галочка), затем START. TP повторяется непрерывно; STOP прекращает. Автоатак нет.", targetListHeight + 217, 48)
+TargetScroll.CanvasSize = UDim2.fromOffset(0, targetListHeight + 282)
 
 -- Dedicated auto-cycle page: START/STOP and cooldowns always visible.
 local CyclePage = pages[2]
@@ -790,10 +871,24 @@ feature(SpeedToggle, 8, 92, halfW, 34)
 feature(SpeedInput, rightX, 92, rightW, 34)
 -- Compact layout: core functions only; every control has an independent row.
 feature(AimToggle, 8, 134, innerW, 36)
+local QuickOptimizeButton = Instance.new("TextButton")
+QuickOptimizeButton.Name = "QuickFPSUltra"
+QuickOptimizeButton.BackgroundColor3 = Color3.fromRGB(22, 131, 98)
+QuickOptimizeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+QuickOptimizeButton.Font = Enum.Font.GothamBold
+QuickOptimizeButton.TextSize = 14
+QuickOptimizeButton.BorderSizePixel = 0
+QuickOptimizeButton.Text = "⚡ FPS ULTRA: ON"
+relayout(QuickOptimizeButton, ControlsScroll, 8, 179, innerW, 43)
+Instance.new("UICorner", QuickOptimizeButton).CornerRadius = UDim.new(0, 8)
+local FPSStatus = infoLabel(ControlsScroll,
+    "Очистка накопленных визуальных частиц, отключение тяжёлых эффектов. Без изменения физики и сетевых пакетов.",
+    236, 66)
+FPSStatus.Name = "FPSStatus"
 infoLabel(ControlsScroll,
-    "AIM: выбери направление камеры, нажми кружок для фиксации цели. Скорость действует отдельно.",
-    181, 72)
-ControlsScroll.CanvasSize = UDim2.fromOffset(0, 282)
+    "AIM: наведи центр камеры и нажми кружок для фиксации одной цели. Отключается отдельно.",
+    316, 60)
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 400)
 
 -- Extras: independent scroll preserves compact panel dimensions.
 local ExtraPage = pages[4]
@@ -914,7 +1009,43 @@ Instance.new("UICorner", IYLaunchButton).CornerRadius = UDim.new(0, 6)
 local IYStatus = infoLabel(ExtraScroll,
     "Встроенный модуль запускается вручную в этой вкладке. Плавающих кнопок справа нет.",
     601, 58)
-ExtraScroll.CanvasSize = UDim2.fromOffset(0, 676)
+-- Imported features from two supplied variants; merged as native controls.
+local ImportHeading = infoLabel(ExtraScroll, "ДОПОЛНЕНИЯ · ДВА ИСХОДНЫХ ВАРИАНТА", 685, 26)
+ImportHeading.Font = Enum.Font.SourceSansBold
+ImportHeading.TextColor3 = Color3.fromRGB(166, 237, 255)
+local function importedButton(id, caption, x, y, width, color)
+    local b=Instance.new("TextButton")
+    b.Name=id
+    b.BorderSizePixel=0
+    b.BackgroundColor3=color
+    b.TextColor3=Color3.fromRGB(255,255,255)
+    b.Font=Enum.Font.GothamBold
+    b.TextSize=12
+    b.Text=caption
+    b.TextTruncate=Enum.TextTruncate.AtEnd
+    relayout(b, ExtraScroll, x, y, width, 38)
+    Instance.new("UICorner",b).CornerRadius=UDim.new(0,7)
+    return b
+end
+local WallButton=importedButton("WallPass", "WALL HACK: OFF", 8, 716, halfW, Color3.fromRGB(117,43,61))
+local NullButton=importedButton("NullPlaceholder", "NULL", rightX, 716, rightW, Color3.fromRGB(45,48,57))
+NullButton.AutoButtonColor=false -- intentionally inert placeholder
+NullButton.TextColor3=Color3.fromRGB(146,156,169)
+local SoftInvisButton=importedButton("SoftInvisibility", "LOCAL INVIS: OFF", 8, 762, innerW, Color3.fromRGB(111,53,102))
+local PrecisionButton=importedButton("ImportedPrecision", "TP SS+ MODE: OFF", 8, 808, innerW, Color3.fromRGB(33,100,137))
+local CoordSafeButton=importedButton("CoordinateSafe", "TP К КООРДИНАТАМ: OFF", 8, 854, innerW, Color3.fromRGB(108,80,32))
+local ImportedStatus=infoLabel(ExtraScroll,
+    "WALL HACK: локальные стены, пол сохраняется. LOCAL INVIS: только на твоём экране. " ..
+    "TP SS+: альтернативный расчёт позиции. Координаты Y=−10000 могут уничтожить персонажа.",
+    902, 95)
+ImportedStatus.Name="ImportedStatus"
+ExtraScroll.CanvasSize = UDim2.fromOffset(0, 1010)
+Refs.WallButton=WallButton
+Refs.NullButton=NullButton
+Refs.SoftInvisButton=SoftInvisButton
+Refs.PrecisionButton=PrecisionButton
+Refs.CoordSafeButton=CoordSafeButton
+Refs.ImportedStatus=ImportedStatus
 Refs.DangerLaunchButton = DangerLaunchButton
 Refs.DangerTitle = DangerTitle
 Refs.DangerSubtitle = DangerSubtitle
@@ -962,6 +1093,10 @@ Refs.LeadToggle = LeadToggle
 Refs.SkillCD1Input = SkillCD1Input
 Refs.SkillCD2Input = SkillCD2Input
 Refs.OptimizationToggle = OptimizationToggle
+Refs.QuickOptimizeButton = QuickOptimizeButton
+Refs.FPSStatus = FPSStatus
+Refs.RosterLabel = RosterLabel
+Refs.RefreshPlayersButton = RefreshPlayersButton
 Refs.DistanceToggle = DistanceToggle
 Refs.RadiusInput = RadiusInput
 Refs.HKGButton = HKGButton
@@ -1050,9 +1185,9 @@ local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V24"
+local AimRenderName = "TSB_DELTA_AIM_V27"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V24"
+local MoveRenderName = "TSB_DELTA_MOVE_V27"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1128,6 +1263,182 @@ end
 local function getHRP(plr)
     if not plr or not plr.Character then return nil end
     return plr.Character:FindFirstChild("HumanoidRootPart")
+end
+
+-- ============================================================
+-- IMPORTED MODES: independent state, no extra ScreenGui and no remotes.
+-- ============================================================
+local WallMode = {
+    original=setmetatable({}, {__mode="k"}),
+    tickConnection=nil, accumulator=0,
+}
+local wallParams=RaycastParams.new()
+wallParams.FilterType=Enum.RaycastFilterType.Exclude
+wallParams.IgnoreWater=true
+local wallHeights={-0.85,0.9}
+local wallDirections={
+    Vector3.new(1,0,0),Vector3.new(-1,0,0),
+    Vector3.new(0,0,1),Vector3.new(0,0,-1),
+    Vector3.new(0.7071,0,0.7071),Vector3.new(-0.7071,0,0.7071),
+    Vector3.new(0.7071,0,-0.7071),Vector3.new(-0.7071,0,-0.7071),
+}
+local function wallDistanceToBounds(part, point)
+    local p=part.CFrame:PointToObjectSpace(point)
+    local r=part.Size*0.5
+    local dx=math.max(math.abs(p.X)-r.X,0)
+    local dy=math.max(math.abs(p.Y)-r.Y,0)
+    local dz=math.max(math.abs(p.Z)-r.Z,0)
+    return math.sqrt(dx*dx+dy*dy+dz*dz)
+end
+local function wallRestore()
+    if WallMode.tickConnection then
+        WallMode.tickConnection:Disconnect()
+        WallMode.tickConnection=nil
+    end
+    for part, previous in pairs(WallMode.original) do
+        if part and part.Parent then
+            pcall(function() part.CanCollide=previous end)
+        end
+        WallMode.original[part]=nil
+    end
+    WallMode.accumulator=0
+end
+local function wallScan()
+    local char=Player.Character
+    local root=getHRP(Player)
+    local hum=char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not root or not hum or hum.Health<=0 then return end
+    local ignored={char}
+    if SafePlatform then ignored[#ignored+1]=SafePlatform end
+    wallParams.FilterDescendantsInstances=ignored
+    local below=workspace:Raycast(root.Position, Vector3.new(0,-5,0),wallParams)
+    local floor=below and below.Normal.Y>0.55 and below.Instance or nil
+    for _, dir in ipairs(wallDirections) do
+        for _, h in ipairs(wallHeights) do
+            local hit=workspace:Raycast(root.Position+Vector3.new(0,h,0),dir*4.5,wallParams)
+            local part=hit and hit.Instance
+            if part and part:IsA("BasePart") and part~=floor
+                and part.Anchored and part.CanCollide and math.abs(hit.Normal.Y)<0.4 then
+                local horizontal=math.abs(part.CFrame.UpVector.Y)>0.8
+                    and part.Size.Y<3 and (part.Size.X>8 or part.Size.Z>8)
+                if not horizontal then
+                    if WallMode.original[part]==nil then
+                        WallMode.original[part]=part.CanCollide
+                    end
+                    pcall(function() part.CanCollide=false end)
+                end
+            end
+        end
+    end
+    for part, old in pairs(WallMode.original) do
+        if not part or not part.Parent then
+            WallMode.original[part]=nil
+        elseif wallDistanceToBounds(part,root.Position)>7 then
+            pcall(function() part.CanCollide=old end)
+            WallMode.original[part]=nil
+        end
+    end
+end
+local function wallStart()
+    if WallMode.tickConnection then return end
+    WallMode.accumulator=0
+    pcall(wallScan)
+    WallMode.tickConnection=RunService.Heartbeat:Connect(function(dt)
+        if not Active or not CONFIG.WALL_PASS then return end
+        WallMode.accumulator=WallMode.accumulator+dt
+        if WallMode.accumulator<0.12 then return end
+        WallMode.accumulator=0
+        pcall(wallScan)
+    end)
+end
+
+-- Lightweight local-only invisibility from the original supplied variant.
+-- Does not move accessories to CoreGui and never invokes a server remote.
+local SoftMode={
+    originals=setmetatable({}, {__mode="k"}),
+    descendantConnection=nil,
+}
+local function softHide(obj)
+    if not obj:IsA("BasePart") then return end
+    if SoftMode.originals[obj]==nil then
+        SoftMode.originals[obj]=obj.LocalTransparencyModifier
+    end
+    obj.LocalTransparencyModifier=1
+end
+local function softRemove()
+    if SoftMode.descendantConnection then
+        SoftMode.descendantConnection:Disconnect()
+        SoftMode.descendantConnection=nil
+    end
+    for obj,old in pairs(SoftMode.originals) do
+        if obj and obj.Parent then
+            pcall(function() obj.LocalTransparencyModifier=old end)
+        end
+        SoftMode.originals[obj]=nil
+    end
+end
+local function softApply()
+    softRemove()
+    local char=Player.Character
+    if not char then return end
+    for _,obj in ipairs(char:GetDescendants()) do
+        pcall(softHide,obj)
+    end
+    SoftMode.descendantConnection=char.DescendantAdded:Connect(function(obj)
+        if CONFIG.SOFT_INVIS then pcall(softHide,obj) end
+    end)
+end
+
+local CoordMode={active=false, previous=nil, platform=nil}
+local COORD_CFRAME=CFrame.new(
+    -216.581772,-10000.0029,-145.716171,
+    0.852498353,-1.00300547e-07,0.522729933,
+    6.29894217e-08,1,8.91515128e-08,
+    -0.522729933,-4.30750616e-08,0.852498353
+)
+local function coordReturn(restore)
+    if CoordMode.platform then CoordMode.platform:Destroy();CoordMode.platform=nil end
+    if restore and CoordMode.previous then
+        local char, root=Player.Character,getHRP(Player)
+        if char and root then
+            pcall(function()
+                char:PivotTo(CoordMode.previous)
+                root.AssemblyLinearVelocity=Vector3.zero
+                root.AssemblyAngularVelocity=Vector3.zero
+            end)
+        end
+    end
+    CoordMode.previous=nil
+    CoordMode.active=false
+end
+local function coordGo()
+    local char, root=Player.Character,getHRP(Player)
+    local hum=char and char:FindFirstChildOfClass("Humanoid")
+    if not char or not root or not hum or hum.Health<=0 then
+        return false,"персонаж ещё не готов"
+    end
+    if root.Anchored then return false,"персонаж закреплён" end
+    CoordMode.previous=root.CFrame
+    local floor=Instance.new("Part")
+    floor.Name="ImportedCoordinateFloor"
+    floor.Size=Vector3.new(28,2,28)
+    floor.Anchored=true
+    floor.CanCollide=true
+    floor.CanTouch=false
+    floor.CanQuery=false
+    floor.CastShadow=false
+    floor.Transparency=1
+    floor.CFrame=CFrame.new(COORD_CFRAME.Position-Vector3.new(0,3,0))
+    floor.Parent=workspace
+    CoordMode.platform=floor
+    local ok,err=pcall(function()
+        char:PivotTo(COORD_CFRAME)
+        root.AssemblyLinearVelocity=Vector3.zero
+        root.AssemblyAngularVelocity=Vector3.zero
+    end)
+    if not ok then coordReturn(false); return false,tostring(err):sub(1,90) end
+    CoordMode.active=true
+    return true,"клиентский TP выполнен; сервер может откатить"
 end
 
 -- ============================================================
@@ -1611,6 +1922,25 @@ function Positioner.getBehindCFrame(targetHRP, distance)
     local pos, flatLook, ragdolled = reliableTargetPose(targetHRP)
     if not pos then return nil end
     local studs = math.clamp(distance or CONFIG.BEHIND_STUDS, 2.1, 8)
+    if CONFIG.SS_POSITIONING and not ragdolled then
+        -- Alternative source formula. Capped extrapolation and predicted facing.
+        local dt=math.min(math.clamp(getPing(),0,300)/1000*1.3,0.12)
+        local velocity=targetHRP.AssemblyLinearVelocity
+        local flatVel=Vector3.new(velocity.X,0,velocity.Z)
+        local lead=flatVel*dt
+        if lead.Magnitude>3 then lead=lead.Unit*3 end
+        pos=pos+lead
+        local ang=targetHRP.AssemblyAngularVelocity
+        if ang.Magnitude>0.1 then
+            local delta=CFrame.fromAxisAngle(ang.Unit,math.min(ang.Magnitude*dt,math.pi/2))
+            local rotated=delta:VectorToWorldSpace(flatLook)
+            local flat=Vector3.new(rotated.X,0,rotated.Z)
+            if flat.Magnitude>0.05 then flatLook=flat.Unit end
+        end
+        local destination=Vector3.new(pos.X,pos.Y+CONFIG.HEIGHT_OFFSET,pos.Z)-flatLook*studs
+        if not validPoint(destination) then return nil end
+        return CFrame.lookAt(destination,Vector3.new(pos.X,destination.Y,pos.Z))
+    end
     -- Short, bounded prediction: optional and disabled for unstable ragdoll physics.
     if CONFIG.PING_COMPENSATE and not ragdolled then
         local velocity = targetHRP.AssemblyLinearVelocity
@@ -1671,7 +2001,7 @@ function Positioner.teleport(force)
     if not SelectedTarget or SelectedTarget.Parent ~= Players then
         return false, "цель не выбрана или вышла"
     end
-    if SafeTriggered or ResetInProgress then
+    if SafeTriggered or ResetInProgress or CoordMode.active then
         return false, "активна безопасная зона / сброс"
     end
     local char, root = Player.Character, getHRP(Player)
@@ -1726,7 +2056,7 @@ function Positioner.teleport(force)
 end
 
 local function teleportToOpponent(opponent, distance, force)
-    if not Active or Evading or SafeTriggered or ResetInProgress then return false end
+    if not Active or Evading or SafeTriggered or ResetInProgress or CoordMode.active then return false end
     local char, root, targetRoot = Player.Character, getHRP(Player), getHRP(opponent)
     local hum = speedHumanoid()
     if not char or not root or not targetRoot or not isAlive(opponent)
@@ -1912,7 +2242,36 @@ local function RefreshPlayerList()
         end
     end
     PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, y + 4)
+    local count=0
+    for _,p in ipairs(all) do if p ~= Player then count=count+1 end end
+    Refs.RosterLabel.Text="ИГРОКИ: "..count
+    if count==0 then
+        local empty = Instance.new("TextLabel")
+        empty.Name="RosterEmpty"
+        empty.BackgroundTransparency=1
+        empty.Text="Других игроков пока нет. Нажми ОБНОВИТЬ."
+        empty.TextColor3=Color3.fromRGB(179,201,222)
+        empty.TextSize=12
+        empty.TextWrapped=true
+        empty.Size=UDim2.new(1,-10,0,68)
+        empty.Position=UDim2.fromOffset(4,12)
+        empty.Parent=PlayerScrollFrame
+        PlayerScrollFrame.CanvasSize=UDim2.fromOffset(0,78)
+    end
 end
+
+local function safeRefreshPlayers()
+    local ok, err=pcall(RefreshPlayerList)
+    if not ok then
+        Refs.RosterLabel.Text="СПИСОК: ОШИБКА"
+        StatusLabel.Text="Ошибка списка: "..tostring(err):sub(1,68)
+        StatusLabel.TextColor3=Color3.fromRGB(255,156,137)
+    end
+    return ok
+end
+Refs.RefreshPlayersButton.Activated:Connect(safeRefreshPlayers)
+-- Do not wait until the end of the embedded command module to populate UI.
+safeRefreshPlayers()
 
 -- ============================================================
 -- NOTIFICATION
@@ -2068,6 +2427,10 @@ RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10
 -- ============================================================
 StartBackstab = function()
     if not Active then return end
+    if CoordMode.active then
+        StatusLabel.Text="Сначала вернись из координатной зоны"
+        return
+    end
     if not SelectedTarget or SelectedTarget == Player or SelectedTarget.Parent ~= Players then
         StatusLabel.Text = "Сначала выбери игрока в списке"
         StatusLabel.TextColor3 = Color3.fromRGB(255, 182, 105)
@@ -15725,6 +16088,10 @@ StopRandomCycle = function(updateStatus)
 end
 StartRandomCycle = function()
     if not Active or RandomCycle.enabled then return end
+    if CoordMode.active then
+        setRandomStatus("Сначала выйди из координатной зоны")
+        return
+    end
     if not isAlive(Player) or not getHRP(Player) then
         setRandomStatus("Сначала дождись появления персонажа")
         return
@@ -15833,17 +16200,33 @@ end
 -- One-click extras (remote loader is explicitly user-requested).
 -- ------------------------------------------------------------
 local function paintOptimizeButton()
-    Refs.OptimizationToggle.Text = Visual.state.wanted and "⚡ FPS OPTIMIZE: ON" or "⚡ FPS OPTIMIZE: OFF"
-    Refs.OptimizationToggle.BackgroundColor3 = Visual.state.wanted
-        and Color3.fromRGB(18, 125, 90) or Color3.fromRGB(125, 48, 58)
-end
-Refs.OptimizationToggle.Activated:Connect(function()
-    if Visual.state.wanted then
-        Visual.stop()
-    else
-        Visual.start()
+    local enabled = Visual.state.wanted
+    local label = enabled and "⚡ FPS ULTRA: ON" or "⚡ FPS ULTRA: OFF"
+    local color = enabled and Color3.fromRGB(17, 137, 96)
+        or Color3.fromRGB(135, 43, 61)
+    for _,button in ipairs({Refs.OptimizationToggle, Refs.QuickOptimizeButton}) do
+        button.Text=label
+        button.BackgroundColor3=color
     end
+    Refs.FPSStatus.Text = enabled
+        and ("Оптимизация активна • обработано объектов: " .. Visual.state.inspected
+             .. " • эффектов под контролем: " .. Visual.state.liveFX
+             .. " • сбросов частиц: " .. Visual.state.cleared)
+        or "Оптимизация выключена • визуальные настройки восстановлены"
+end
+local function switchOptimization()
+    if Visual.state.wanted then Visual.stop() else Visual.start() end
     paintOptimizeButton()
+end
+Refs.OptimizationToggle.Activated:Connect(switchOptimization)
+Refs.QuickOptimizeButton.Activated:Connect(switchOptimization)
+local performanceStatusRunning = true
+-- Status updates are slow and bounded: no per-frame GUI garbage.
+task.spawn(function()
+    while performanceStatusRunning and Active do
+        pcall(paintOptimizeButton)
+        task.wait(3.5)
+    end
 end)
 local function paintDistanceButton()
     Refs.DistanceToggle.Text = Visual.state.distanceEnabled
@@ -15975,6 +16358,73 @@ Refs.DangerLaunchButton.Activated:Connect(function()
     end)
 end)
 
+-- ------------------------------------------------------------
+-- IMPORTED FEATURE BUTTONS: all explicitly manual, no extra GUI.
+-- ------------------------------------------------------------
+local function paintImported()
+    Refs.WallButton.Text=CONFIG.WALL_PASS and "WALL HACK: ON" or "WALL HACK: OFF"
+    Refs.WallButton.BackgroundColor3=CONFIG.WALL_PASS
+        and Color3.fromRGB(17,128,91) or Color3.fromRGB(117,43,61)
+    Refs.SoftInvisButton.Text=CONFIG.SOFT_INVIS and "LOCAL INVIS: ON" or "LOCAL INVIS: OFF"
+    Refs.SoftInvisButton.BackgroundColor3=CONFIG.SOFT_INVIS
+        and Color3.fromRGB(20,122,103) or Color3.fromRGB(111,53,102)
+    Refs.PrecisionButton.Text=CONFIG.SS_POSITIONING and "TP SS+ MODE: ON" or "TP SS+ MODE: OFF"
+    Refs.PrecisionButton.BackgroundColor3=CONFIG.SS_POSITIONING
+        and Color3.fromRGB(16,134,101) or Color3.fromRGB(33,100,137)
+    Refs.CoordSafeButton.Text=CoordMode.active and "↩ НАЗАД С КООРДИНАТ" or "TP К КООРДИНАТАМ: OFF"
+    Refs.CoordSafeButton.BackgroundColor3=CoordMode.active
+        and Color3.fromRGB(27,123,104) or Color3.fromRGB(108,80,32)
+end
+Refs.WallButton.Activated:Connect(function()
+    CONFIG.WALL_PASS=not CONFIG.WALL_PASS
+    if CONFIG.WALL_PASS then wallStart() else wallRestore() end
+    paintImported()
+    Refs.ImportedStatus.Text=CONFIG.WALL_PASS
+        and "WALL HACK включён: стены без локальных коллизий, пол сохраняется (если сервер разрешает)."
+        or "WALL HACK выключен: коллизии восстановлены."
+end)
+Refs.SoftInvisButton.Activated:Connect(function()
+    if not CONFIG.SOFT_INVIS and CONFIG.INVISIBLE then
+        CONFIG.INVISIBLE=false
+        Invisibility.remove()
+        paintToggle(InvisToggle,"INVIS",false)
+    end
+    CONFIG.SOFT_INVIS=not CONFIG.SOFT_INVIS
+    if CONFIG.SOFT_INVIS then softApply() else softRemove() end
+    paintImported()
+    Refs.ImportedStatus.Text=CONFIG.SOFT_INVIS
+        and "LOCAL INVIS включён. Видимость изменена только локально."
+        or "LOCAL INVIS выключен. Свойства восстановлены."
+end)
+Refs.PrecisionButton.Activated:Connect(function()
+    CONFIG.SS_POSITIONING=not CONFIG.SS_POSITIONING
+    paintImported()
+    Refs.ImportedStatus.Text=CONFIG.SS_POSITIONING
+        and "Альтернативное TP SS+ включено: прогноз движения и направления цели."
+        or "TP SS+ выключено: используется штатный позиционер."
+end)
+Refs.CoordSafeButton.Activated:Connect(function()
+    if CoordMode.active then
+        coordReturn(true)
+        Refs.ImportedStatus.Text="Возврат к сохранённой точке запрошен."
+    else
+        if BackstabActive and StopBackstab then StopBackstab() end
+        if StopRandomCycle then StopRandomCycle(false) end
+        if SafeTriggered then removeSafeZone(false) end
+        if CONFIG.SAFE_ZONE then
+            CONFIG.SAFE_ZONE=false
+            paintToggle(SafeToggle,"SAVE ZONA",false)
+        end
+        local ok,reason=coordGo()
+        Refs.ImportedStatus.Text=ok
+            and "TP к Y = −10000 выполнен локально. ВНИМАНИЕ: возможны смерть и откат сервером."
+            or ("TP не выполнен: "..tostring(reason))
+    end
+    paintImported()
+end)
+-- NULL intentionally has no click handler.
+paintImported()
+
 -- BUTTON CONNECTIONS
 -- ============================================================
 -- Speed input applies only on focus loss; avoids per-keystroke writes.
@@ -16038,7 +16488,7 @@ RandomTPButton.Activated:Connect(function()
     end
     if BackstabActive and StopBackstab then StopBackstab() end
     SelectedTarget = other
-    RefreshPlayerList()
+    safeRefreshPlayers()
     if StartBackstab then StartBackstab() end
 end)
 
@@ -16076,6 +16526,11 @@ SafeToggle.Activated:Connect(function()
 end)
 
 InvisToggle.Activated:Connect(function()
+    if not CONFIG.INVISIBLE and CONFIG.SOFT_INVIS then
+        CONFIG.SOFT_INVIS=false
+        softRemove()
+        paintImported()
+    end
     CONFIG.INVISIBLE = not CONFIG.INVISIBLE
     if CONFIG.INVISIBLE then
         Invisibility.apply()
@@ -16107,6 +16562,7 @@ Shutdown = function()
     local function safe(callback) pcall(callback) end
     safe(function() if StopRandomCycle then StopRandomCycle(false) end end)
     Active = false
+    performanceStatusRunning = false
     safe(Visual.stop)
     safe(function() setAimEnabled(false) end)
     safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
@@ -16118,6 +16574,11 @@ Shutdown = function()
     safe(function() StopBackstab() end)
     safe(function() refreshRotationLock() end)
     safe(function() removeSafeZone(false) end) -- no unwanted exit teleport
+    safe(function() coordReturn(false) end)
+    safe(wallRestore)
+    CONFIG.WALL_PASS=false
+    safe(softRemove)
+    CONFIG.SOFT_INVIS=false
     safe(Invisibility.remove)
     CONFIG.INVISIBLE = false
     for _, conn in pairs({HealthConnection, DeathConnection, CharacterConnection,
@@ -16128,18 +16589,18 @@ Shutdown = function()
         if conn then safe(function() conn:Disconnect() end) end
     end
     safe(function() if HiddenFolder then HiddenFolder:Destroy() end end)
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V27_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V27_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V24_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V27_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
 -- ============================================================
-table.insert(CleanupConnections, Players.PlayerAdded:Connect(function(newPlayer)
-    RefreshPlayerList()
+table.insert(CleanupConnections, Players.PlayerAdded:Connect(function()
+    task.defer(safeRefreshPlayers)
 end))
 
 table.insert(CleanupConnections, Players.PlayerRemoving:Connect(function(player)
@@ -16152,7 +16613,7 @@ table.insert(CleanupConnections, Players.PlayerRemoving:Connect(function(player)
         if BackstabActive and StopBackstab then StopBackstab() end
         SelectedTarget = nil
     end
-    RefreshPlayerList()
+    safeRefreshPlayers()
     UpdateStatus()
 end))
 
@@ -16160,6 +16621,14 @@ end))
 -- RESPAWN
 -- ============================================================
 CharacterConnection = Player.CharacterAdded:Connect(function(character)
+    -- Release all local wall collision changes and coordinate platform after death.
+    local keepWall=CONFIG.WALL_PASS
+    wallRestore()
+    coordReturn(false)
+    if keepWall then task.defer(function()
+        if Active and CONFIG.WALL_PASS and Player.Character==character then wallStart() end
+    end) end
+    softRemove()
     if StopRandomCycle then StopRandomCycle(false) end
     local resumeFollow = FollowWanted and SelectedTarget ~= nil
     if BackstabActive and StopBackstab then StopBackstab(true) end
@@ -16194,6 +16663,12 @@ CharacterConnection = Player.CharacterAdded:Connect(function(character)
             end
         end)
     end
+    if CONFIG.SOFT_INVIS then
+        task.defer(function()
+            if Active and Player.Character==character then softApply() end
+        end)
+    end
+    paintImported()
 end)
 
 if Player.Character then
@@ -16203,7 +16678,7 @@ end
 -- ============================================================
 -- INIT
 -- ============================================================
-RefreshPlayerList()
+safeRefreshPlayers()
 UpdateStatus()
 Visual.start()  -- default performance mode ON; reversible in Extras.
 paintOptimizeButton()
