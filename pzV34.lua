@@ -1,5 +1,5 @@
 --[[
-    TSB DELTA v35 | CLEAN REBUILD
+    TSB DELTA v36 | COMPACT CONTROL EDITION
     Keeps the v33/v34 controls without their overlapping movement/render loops.
     Local-only client script (executor with loadstring + HttpGet for external modules).
     Teleport, damage, and actual invisibility are subject to server authority.
@@ -20,7 +20,7 @@ if not LocalPlayer then return end
 local env
 pcall(function() if type(getgenv) == "function" then env = getgenv() end end)
 if type(env) ~= "table" then env = _G end
-for _, k in ipairs({"__TSB_DELTA_V35_SHUTDOWN", "__TSB_DELTA_V34_SHUTDOWN", "__TSB_DELTA_V33_SHUTDOWN",
+for _, k in ipairs({"__TSB_DELTA_V36_SHUTDOWN", "__TSB_DELTA_V35_SHUTDOWN", "__TSB_DELTA_V34_SHUTDOWN", "__TSB_DELTA_V33_SHUTDOWN",
     "__TSB_DELTA_V32_SHUTDOWN", "__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN",
     "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN",
     "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN"}) do
@@ -34,8 +34,13 @@ for _, suffix in ipairs({"V33", "V32", "V31", "V30", "V29", "V28", "V27", "V26"}
         pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_" .. mode .. "_" .. suffix) end)
     end
 end
-pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_v35_Follow") end)
-pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_v35_Aim") end)
+-- If a previous build crashed before installing its cleanup callback,
+-- still clear all known bindings before registering this build.
+for _, ver in ipairs({"v35", "v36"}) do
+    pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_" .. ver .. "_Follow") end)
+    pcall(function() RunService:UnbindFromRenderStep("TSB_DELTA_" .. ver .. "_Aim") end)
+end
+-- (Already cleared by the loop above.)
 local clean = {alive = true, connections = {}, instances = {}, bindings = {}, timers = {}}
 function clean:connect(signal, callback)
     local c = signal:Connect(callback)
@@ -71,10 +76,10 @@ local state = {
 }
 local UI = {}
 local C = {
-    bg = Color3.fromRGB(15, 21, 33), panel = Color3.fromRGB(25, 34, 49),
-    button = Color3.fromRGB(36, 55, 76), blue = Color3.fromRGB(26, 123, 159),
-    green = Color3.fromRGB(17, 136, 100), red = Color3.fromRGB(137, 48, 68),
-    white = Color3.fromRGB(235, 245, 252), muted = Color3.fromRGB(160, 186, 209),
+    bg = Color3.fromRGB(12, 18, 32), panel = Color3.fromRGB(20, 31, 49),
+    button = Color3.fromRGB(34, 50, 76), blue = Color3.fromRGB(30, 125, 190),
+    green = Color3.fromRGB(20, 139, 111), red = Color3.fromRGB(152, 48, 80),
+    white = Color3.fromRGB(236, 244, 253), muted = Color3.fromRGB(159, 186, 214),
     orange = Color3.fromRGB(247, 175, 113),
 }
 local function getChar(plr)
@@ -109,7 +114,7 @@ local function toggleLook(button, title, on)
 end
 local function notify(text)
     pcall(function()
-        StarterGui:SetCore("SendNotification", {Title = "TSB DELTA v35", Text = tostring(text):sub(1, 160), Duration = 5})
+        StarterGui:SetCore("SendNotification", {Title = "TSB DELTA v36", Text = tostring(text):sub(1, 160), Duration = 5})
     end)
 end
 
@@ -124,7 +129,7 @@ if not uiParent then
     if ok then uiParent = CoreGui end
 end
 if not uiParent then uiParent = LocalPlayer:FindFirstChildOfClass("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 8) end
-if not uiParent then error("TSB v35: UI parent unavailable") end
+if not uiParent then error("TSB v36: UI parent unavailable") end
 for _, rootGui in ipairs({CoreGui, LocalPlayer:FindFirstChildOfClass("PlayerGui"), uiParent}) do
     if rootGui then
         pcall(function()
@@ -138,15 +143,17 @@ for _, rootGui in ipairs({CoreGui, LocalPlayer:FindFirstChildOfClass("PlayerGui"
     end
 end
 local gui = clean:own(Instance.new("ScreenGui"))
-gui.Name = "TSB_DELTA_v35"
+gui.Name = "TSB_DELTA_v36"
 gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
 gui.DisplayOrder = 153
 gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 gui.Parent = uiParent
 local cam = workspace.CurrentCamera
 local view = cam and cam.ViewportSize or Vector2.new(430, 780)
-local W = math.clamp(view.X - 24, 240, 355)
-local H = math.clamp(view.Y - 48, 300, 493)
+-- Compact profile: maximum 305 px wide, height constrained by available viewport.
+local W = math.clamp(view.X - 24, 220, 305)
+local H = math.clamp(view.Y - 35, 295, 460)
 local function create(class, parent, props)
     local o = Instance.new(class)
     for key, val in pairs(props or {}) do o[key] = val end
@@ -191,34 +198,40 @@ local frame = create("Frame", gui, {
     BackgroundColor3 = C.bg, BorderSizePixel = 0,
     ClipsDescendants = true, Active = true,
 })
-corner(frame, 11)
-create("UIStroke", frame, {Color = C.blue, Thickness = 1.3})
+corner(frame, 12)
+create("UIStroke", frame, {Color = Color3.fromRGB(52, 109, 155), Thickness = 1.2})
 local titlebar = create("Frame", frame, {
-    Name = "TitleBar", Size = UDim2.new(1, 0, 0, 33),
-    BackgroundColor3 = Color3.fromRGB(23, 61, 82), BorderSizePixel = 0,
+    Name = "TitleBar", Size = UDim2.new(1, 0, 0, 37),
+    BackgroundColor3 = Color3.fromRGB(20, 48, 78), BorderSizePixel = 0,
     Active = true,
 })
-local title = label(titlebar, "TSB DELTA v35  •  REBUILT", 0, 32, 12)
-title.Size = UDim2.new(1, -79, 0, 33)
-title.TextColor3 = Color3.fromRGB(142, 246, 255)
+create("UIGradient", titlebar, {
+    Color = ColorSequence.new(Color3.fromRGB(23, 62, 100), Color3.fromRGB(16, 39, 65)),
+    Rotation = 0,
+})
+local title = label(titlebar, "⠿  TSB DELTA  /  v36", 0, 37, 12)
+title.Position = UDim2.fromOffset(10, 0)
+title.Size = UDim2.new(1, -87, 0, 37)
+title.TextColor3 = Color3.fromRGB(162, 235, 254)
 title.Font = Enum.Font.GothamBold
 title.Active = true
-local closeBtn = button(titlebar, "×", 1, 30, C.red)
+local closeBtn = button(titlebar, "×", 3, 30, C.red)
 closeBtn.Size = UDim2.fromOffset(30, 30)
-closeBtn.Position = UDim2.new(1, -32, 0, 1)
+closeBtn.Position = UDim2.new(1, -34, 0, 3)
 closeBtn.TextSize = 18
-local miniBtn = button(titlebar, "−", 1, 30, C.button)
+local miniBtn = button(titlebar, "−", 3, 30, C.button)
 miniBtn.Size = UDim2.fromOffset(30, 30)
-miniBtn.Position = UDim2.new(1, -64, 0, 1)
+miniBtn.Position = UDim2.new(1, -68, 0, 3)
 miniBtn.TextSize = 18
-UI.status = label(frame, "Выбери игрока в списке", 37, 25, 11)
+UI.status = label(frame, "Цель не выбрана • перетащи за шапку", 39, 25, 10)
 UI.status.TextTruncate = Enum.TextTruncate.AtEnd
+UI.status.TextWrapped = false
 local tabs = create("Frame", frame, {
-    Size = UDim2.new(1, -16, 0, 33), Position = UDim2.fromOffset(8, 65),
+    Size = UDim2.new(1, -16, 0, 32), Position = UDim2.fromOffset(8, 67),
     BackgroundTransparency = 1,
 })
 local host = create("Frame", frame, {
-    Size = UDim2.new(1, -16, 1, -108), Position = UDim2.fromOffset(8, 103),
+    Size = UDim2.new(1, -16, 1, -107), Position = UDim2.fromOffset(8, 102),
     BackgroundTransparency = 1, ClipsDescendants = true,
 })
 local pages, tabsBtns = {}, {}
@@ -226,7 +239,7 @@ for i, name in ipairs({"ЦЕЛЬ", "ФУНКЦИИ", "ДОП."}) do
     local tb = create("TextButton", tabs, {
         Position = UDim2.new((i-1)/3, 2, 0, 0), Size = UDim2.new(1/3, -5, 1, 0),
         BackgroundColor3 = C.button, BorderSizePixel = 0, Text = name,
-        TextColor3 = C.white, Font = Enum.Font.GothamBold, TextSize = 11,
+        TextColor3 = C.white, Font = Enum.Font.GothamBold, TextSize = 10,
     })
     corner(tb, 7)
     tabsBtns[i] = tb
@@ -236,7 +249,7 @@ for i, name in ipairs({"ЦЕЛЬ", "ФУНКЦИИ", "ДОП."}) do
         ScrollBarThickness = 3, ScrollBarImageColor3 = C.blue,
         Visible = i == 1, CanvasSize = UDim2.fromOffset(0, 760),
     })
-    corner(pg, 6)
+    corner(pg, 8)
     pages[i] = pg
 end
 local function showPage(index)
@@ -248,32 +261,31 @@ end
 for i, tb in ipairs(tabsBtns) do clean:connect(tb.Activated, function() showPage(i) end) end
 showPage(1)
 
--- TARGET PAGE: fixed independent roster, never regenerates the outer controls.
-label(pages[1], "ВЫБОР ИГРОКА", 8, 28, 12).TextColor3 = C.white
-UI.refresh = button(pages[1], "↻ ОБНОВИТЬ ИГРОКОВ", 39, 30, C.blue)
+-- TARGET PAGE: select only; movement begins ONLY after START.
+label(pages[1], "ИГРОКИ  •  ВЫБЕРИ ЦЕЛЬ", 5, 26, 11).TextColor3 = C.white
 UI.roster = create("ScrollingFrame", pages[1], {
-    Name = "Roster", Position = UDim2.fromOffset(8, 78),
-    Size = UDim2.new(1, -16, 0, 178), BackgroundColor3 = C.bg,
+    Name = "Roster", Position = UDim2.fromOffset(8, 36),
+    Size = UDim2.new(1, -16, 0, 190), BackgroundColor3 = C.bg,
     BorderSizePixel = 0, ScrollBarThickness = 3,
-    CanvasSize = UDim2.fromOffset(0, 0),
+    ScrollBarImageColor3 = C.blue, CanvasSize = UDim2.fromOffset(0, 0),
 })
-corner(UI.roster, 6)
-UI.start = button(pages[1], "▶ START • FOLLOW", 266, 37, C.green)
-UI.stop = button(pages[1], "■ STOP • FOLLOW", 310, 35, C.red)
-UI.once = button(pages[1], "⚡ TP ONCE", 352, 35, C.blue)
-label(pages[1], "ДИСТАНЦИЯ СЗАДИ (2.3–8 studs)", 392, 32)
-UI.dist = input(pages[1], SET.distance, 425, "3.0")
-UI.lead = button(pages[1], "", 467, 35)
-UI.ss = button(pages[1], "", 510, 35)
-label(pages[1], "Выбор игрока = один TP сразу. START = постоянное сопровождение. " ..
-    "Реальность TP/ударов подтверждает только сервер игры.", 559, 75)
-pages[1].CanvasSize = UDim2.fromOffset(0, 650)
+corner(UI.roster, 8)
+UI.start = button(pages[1], "▶  START • FOLLOW", 236, 42, C.green)
+UI.stop = button(pages[1], "■  STOP", 285, 34, C.red)
+UI.once = button(pages[1], "⚡  TP ONCE", 325, 34, C.blue)
+label(pages[1], "ДИСТАНЦИЯ СЗАДИ (2.3–8 studs)", 366, 29)
+UI.dist = input(pages[1], SET.distance, 399, "3.0")
+UI.lead = button(pages[1], "", 442, 34)
+UI.ss = button(pages[1], "", 482, 34)
+label(pages[1], "Выбор не перемещает. START запускает TP и FOLLOW. " ..
+    "Фактическое положение и попадания определяет сервер Roblox.", 523, 66)
+pages[1].CanvasSize = UDim2.fromOffset(0, 600)
 
 -- FEATURES PAGE
 UI.invis = button(pages[2], "▶ INVIS • AIRBORNITE", 12, 43, C.blue)
 UI.invisStatus = label(pages[2], "INVIS не запускался", 62, 67)
 UI.aim = button(pages[2], "", 146, 40)
-label(pages[2], "AIM: выбери игрока, включи AIM, затем нажми ◉. " ..
+label(pages[2], "AIM включается БЕЗ цели. Выбери игрока и нажми ◎ для захвата. " ..
     "Захват сохраняется при смене персонажа в дуэли.", 194, 60)
 UI.speed = button(pages[2], "", 267, 37)
 label(pages[2], "СКОРОСТЬ (8–120)", 309, 30)
@@ -281,6 +293,7 @@ UI.speedInput = input(pages[2], SET.speedValue, 345, "42")
 UI.safe = button(pages[2], "", 394, 36)
 UI.reset = button(pages[2], "", 438, 36)
 UI.fps = button(pages[2], "", 485, 41, C.green)
+create("UIStroke", UI.fps, {Color = Color3.fromRGB(71, 237, 191), Thickness = 1.4})
 UI.fpsStatus = label(pages[2], "FPS: инициализация...", 536, 82)
 pages[2].CanvasSize = UDim2.fromOffset(0, 650)
 
@@ -293,26 +306,31 @@ label(pages[3], "РАДИУС ДЕКОРА (80–300)", 221, 30)
 UI.radius = input(pages[3], SET.radius, 255, "160")
 UI.hkg = button(pages[3], "▶ HKG VOID", 307, 40, C.blue)
 UI.hkgStatus = label(pages[3], "Внешний модуль не запускался", 351, 58)
-UI.danger = button(pages[3], "☠ DANGER SCRIPT", 427, 52, C.red)
+UI.danger = button(pages[3], "☠  DANGER CORE  •  EXECUTE", 427, 52, C.red)
+create("UIStroke", UI.danger, {Color = Color3.fromRGB(255, 112, 148), Thickness = 1.6})
+create("UIGradient", UI.danger, {
+    Color = ColorSequence.new(Color3.fromRGB(233, 81, 123), Color3.fromRGB(124, 27, 64)),
+    Rotation = 0,
+})
 UI.dangerStatus = label(pages[3], "Внешний модуль не запускался. Запускай на свой риск.", 488, 67)
 label(pages[3], "Все внешние модули запускаются только по кнопке. " ..
     "FPS Ultra меняет только локальную графику.", 566, 64)
 pages[3].CanvasSize = UDim2.fromOffset(0, 674)
 
--- Floating controls: single pair of global handlers rather than one per button.
+-- Floating controls: no per-frame UI work and one global pointer handler.
 local dock = button(gui, "≡", 0, 44, C.blue)
 dock.Name = "Dock"
-dock.Size = UDim2.fromOffset(42, 42)
-dock.Position = UDim2.fromOffset(math.max(5, view.X - 55), math.floor(view.Y * 0.31))
-dock.TextSize = 24
+dock.Size = UDim2.fromOffset(40, 40)
+dock.Position = UDim2.fromOffset(math.max(5, view.X - 52), math.floor(view.Y * 0.31))
+dock.TextSize = 23
 local aimHud = button(gui, "◎", 0, 44, C.button)
 aimHud.Name = "AimSelect"
-aimHud.Size = UDim2.fromOffset(45, 45)
+aimHud.Size = UDim2.fromOffset(44, 44)
 aimHud.Position = UDim2.fromOffset(14, 112)
-aimHud.TextSize = 27
+aimHud.TextSize = 26
 aimHud.Visible = false
 local hilite = clean:own(Instance.new("Highlight"))
-hilite.Name = "TSB_DELTA_v35_AimHighlight"
+hilite.Name = "TSB_DELTA_v36_AimHighlight"
 hilite.DepthMode = Enum.HighlightDepthMode.Occluded
 hilite.FillColor = Color3.fromRGB(18, 179, 232)
 hilite.FillTransparency = 0.90
@@ -326,45 +344,46 @@ local function screenView()
     return camera and camera.ViewportSize or Vector2.new(430, 780)
 end
 local function moveInside(object, point)
-    local v = screenView()
-    local s = object.AbsoluteSize
+    local viewport = screenView()
+    local size = object.AbsoluteSize
     object.Position = UDim2.fromOffset(
-        math.floor(math.clamp(point.X, 3, math.max(3, v.X - s.X - 3))),
-        math.floor(math.clamp(point.Y, 3, math.max(3, v.Y - s.Y - 3))))
+        math.floor(math.clamp(point.X, 2, math.max(2, viewport.X - size.X - 2))),
+        math.floor(math.clamp(point.Y, 2, math.max(2, viewport.Y - size.Y - 2))))
 end
-local dragging = nil
-local dragged = false
+local drag, wasMoved = nil, false
 local suppressed = setmetatable({}, {__mode = "k"})
-for _, object in ipairs({titlebar, dock, aimHud}) do
-    clean:connect(object.InputBegan, function(inputObj)
-        local t = inputObj.UserInputType
-        if t ~= Enum.UserInputType.MouseButton1 and t ~= Enum.UserInputType.Touch then return end
-        local movable = object == titlebar and frame or object
-        dragging = {
-            handle = object, obj = movable, original = movable.AbsolutePosition,
-            pointer = inputObj, origin = Vector2.new(inputObj.Position.X, inputObj.Position.Y),
-        }
-        dragged = false
-    end)
+local function beginDrag(handle, movable, input)
+    if drag then return end -- Do not confuse simultaneous touch inputs.
+    local typ = input.UserInputType
+    if typ ~= Enum.UserInputType.MouseButton1 and typ ~= Enum.UserInputType.Touch then return end
+    local pos = Vector2.new(input.Position.X, input.Position.Y)
+    drag = {handle = handle, object = movable, start = pos,
+        initial = movable.AbsolutePosition, pointer = input}
+    wasMoved = false
 end
-clean:connect(UserInputService.InputChanged, function(inputObj)
-    if not dragging then return end
-    local d = dragging
-    if d.pointer.UserInputType == Enum.UserInputType.Touch then
-        if inputObj ~= d.pointer then return end
-    elseif inputObj.UserInputType ~= Enum.UserInputType.MouseMovement then return end
-    local delta = Vector2.new(inputObj.Position.X, inputObj.Position.Y) - d.origin
-    if delta.Magnitude > 7 then dragged = true end
-    if dragged then moveInside(d.obj, d.original + delta) end
+-- Bind header text too: TextLabels can intercept touches on some executors.
+for _, handle in ipairs({titlebar, title}) do
+    clean:connect(handle.InputBegan, function(input) beginDrag(titlebar, frame, input) end)
+end
+for _, handle in ipairs({dock, aimHud}) do
+    clean:connect(handle.InputBegan, function(input) beginDrag(handle, handle, input) end)
+end
+clean:connect(UserInputService.InputChanged, function(input)
+    if not drag then return end
+    local touch = drag.pointer.UserInputType == Enum.UserInputType.Touch
+    if (touch and input ~= drag.pointer) or
+        (not touch and input.UserInputType ~= Enum.UserInputType.MouseMovement) then return end
+    local delta = Vector2.new(input.Position.X, input.Position.Y) - drag.start
+    if delta.Magnitude > 6 then wasMoved = true end
+    if wasMoved then moveInside(drag.object, drag.initial + delta) end
 end)
-clean:connect(UserInputService.InputEnded, function(inputObj)
-    if not dragging then return end
-    local d = dragging
-    if d.pointer.UserInputType == Enum.UserInputType.Touch and inputObj ~= d.pointer then return end
-    if d.pointer.UserInputType == Enum.UserInputType.MouseButton1 and
-        inputObj.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-    if dragged then suppressed[d.handle] = os.clock() + 0.30 end
-    dragging = nil
+clean:connect(UserInputService.InputEnded, function(input)
+    if not drag then return end
+    local touch = drag.pointer.UserInputType == Enum.UserInputType.Touch
+    if (touch and input ~= drag.pointer) or
+        (not touch and input.UserInputType ~= Enum.UserInputType.MouseButton1) then return end
+    if wasMoved then suppressed[drag.handle] = os.clock() + 0.22 end
+    drag = nil
 end)
 local function wasDragged(object)
     return (suppressed[object] or 0) > os.clock()
@@ -372,7 +391,7 @@ end
 local minimized = false
 clean:connect(miniBtn.Activated, function()
     minimized = not minimized
-    frame.Size = UDim2.fromOffset(minimized and 191 or W, minimized and 33 or H)
+    frame.Size = UDim2.fromOffset(minimized and 195 or W, minimized and 37 or H)
     for _, child in ipairs(frame:GetChildren()) do
         if child:IsA("GuiObject") and child ~= titlebar then child.Visible = not minimized end
     end
@@ -380,9 +399,21 @@ clean:connect(miniBtn.Activated, function()
     moveInside(frame, frame.AbsolutePosition)
 end)
 clean:connect(dock.Activated, function()
-    if wasDragged(dock) then return end
-    frame.Visible = not frame.Visible
+    if not wasDragged(dock) then frame.Visible = not frame.Visible end
 end)
+-- If a user rotates the device, keep the controls reachable.
+if cam then
+    clean:connect(cam:GetPropertyChangedSignal("ViewportSize"), function()
+        if not clean.alive then return end
+        local viewport = screenView()
+        W = math.clamp(viewport.X - 24, 220, 305)
+        H = math.clamp(viewport.Y - 35, 295, 460)
+        if not minimized then frame.Size = UDim2.fromOffset(W, H) end
+        moveInside(frame, frame.AbsolutePosition)
+        moveInside(dock, dock.AbsolutePosition)
+        moveInside(aimHud, aimHud.AbsolutePosition)
+    end)
+end
 
 -- ==== TARGET / TP =========================================================
 local cachedPing, lastPing = 55, -1e9
@@ -445,6 +476,7 @@ local function desiredBehind()
     return CFrame.lookAt(goal, face)
 end
 local corrections, previousTp, previousTpAt = 0, nil, 0
+local lastFollowTick = 0
 local function teleport(force)
     if not clean.alive or state.safeActive or state.coordinate then return false, "Активна другая зона" end
     if not state.target or state.target.Parent ~= Players then return false, "Выбери игрока" end
@@ -487,17 +519,22 @@ local function rotateToTarget(plr)
     end
 end
 local function paintFollow()
-    UI.start.BackgroundColor3 = state.follow and C.green or C.button
-    UI.start.Text = state.follow and "▶ FOLLOW • АКТИВНО" or "▶ START • FOLLOW"
+    local ready = state.target and state.target.Parent == Players
+    UI.start.BackgroundColor3 = ready and C.green or C.button
+    UI.start.Text = state.follow and "▶ FOLLOW • АКТИВНО"
+        or (ready and "▶ START • FOLLOW" or "▶ СНАЧАЛА ВЫБЕРИ ИГРОКА")
 end
 local function stopFollow(preserve)
     if not preserve then state.resumeFollow = false end
     state.follow = false
-    clean:unbind("TSB_DELTA_v35_Follow")
+    clean:unbind("TSB_DELTA_v36_Follow")
     paintFollow()
 end
 local function followStep()
     if not clean.alive or not state.follow then return end
+    local tickNow = os.clock()
+    if tickNow - lastFollowTick < 1/60 then return end
+    lastFollowTick = tickNow
     if not state.target or state.target.Parent ~= Players then
         stopFollow(false)
         status("Цель вышла из игры", "error")
@@ -525,16 +562,17 @@ end
 local function startFollow()
     if not state.target then status("Сначала выбери игрока", "error"); return end
     if state.coordinate then status("Сначала вернись из координатной зоны", "error"); return end
+    if state.safeActive then status("Сначала выключи SAFE ZONA", "error"); return end
     state.follow, state.resumeFollow = true, true
-    corrections, previousTp = 0, nil
+    corrections, previousTp, lastFollowTick = 0, nil, 0
     local ok, msg = teleport(true)
     status(ok and "FOLLOW запущен: " .. msg or "FOLLOW ожидает: " .. tostring(msg), ok and "ok" or "error")
-    clean:bind("TSB_DELTA_v35_Follow", Enum.RenderPriority.Character.Value + 2, function()
+    clean:bind("TSB_DELTA_v36_Follow", Enum.RenderPriority.Character.Value + 2, function()
         local success, err = pcall(followStep)
         if not success then
             if os.clock() - (state.lastFollowError or 0) > 2 then
                 state.lastFollowError = os.clock()
-                warn("[TSB v35 FOLLOW] " .. tostring(err))
+                warn("[TSB v36 FOLLOW] " .. tostring(err))
             end
         end
     end)
@@ -542,53 +580,106 @@ local function startFollow()
 end
 
 -- ==== ROSTER / TARGET SELECTION ==========================================
-local entries = {}
-local rosterConnections = {}
+local entries, rosterConnections = {}, {}
+local thumbCache, thumbQueue, thumbWorkers = {}, {}, 0
+local rosterRefreshPending = false
+local function queueThumbnail(userId, imageLabel)
+    if thumbCache[userId] then imageLabel.Image = thumbCache[userId]; return end
+    thumbQueue[#thumbQueue + 1] = {id = userId, label = imageLabel}
+    if thumbWorkers >= 2 then return end
+    thumbWorkers = thumbWorkers + 1
+    task.spawn(function()
+        while clean.alive and #thumbQueue > 0 do
+            local item = table.remove(thumbQueue, 1)
+            if item.label and item.label.Parent then
+                local ok, image = pcall(function()
+                    return Players:GetUserThumbnailAsync(item.id,
+                        Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size48x48)
+                end)
+                if ok and type(image) == "string" and image ~= "" then
+                    thumbCache[item.id] = image
+                    if clean.alive and item.label.Parent then item.label.Image = image end
+                end
+            end
+            task.wait() -- Avoid burst thumbnail requests and UI stalls.
+        end
+        thumbWorkers = thumbWorkers - 1
+    end)
+end
 local function rebuildRoster()
-    for _, conn in ipairs(rosterConnections) do pcall(function() conn:Disconnect() end) end
-    rosterConnections = {}
+    rosterRefreshPending = false
     if not clean.alive then return end
+    for _, connection in ipairs(rosterConnections) do pcall(function() connection:Disconnect() end) end
+    rosterConnections = {}
     for _, child in ipairs(UI.roster:GetChildren()) do
         if child:IsA("GuiObject") then child:Destroy() end
     end
     entries = {}
-    local candidates = Players:GetPlayers()
-    table.sort(candidates, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
-    local y = 4
-    for _, enemy in ipairs(candidates) do
+    local players = Players:GetPlayers()
+    table.sort(players, function(a, b) return a.DisplayName:lower() < b.DisplayName:lower() end)
+    local y = 5
+    for _, enemy in ipairs(players) do
         if enemy ~= LocalPlayer then
-            local b = button(UI.roster, "", y, 43, enemy == state.target and C.green or C.button)
-            b.Name = "Target_" .. tostring(enemy.UserId)
-            b.Text = "  " .. enemy.DisplayName .. "   (@" .. enemy.Name .. ")"
-            b.TextXAlignment = Enum.TextXAlignment.Left
-            b.TextTruncate = Enum.TextTruncate.AtEnd
-            b.TextSize = 11
-            entries[enemy.UserId] = b
-            rosterConnections[#rosterConnections+1] = b.Activated:Connect(function()
+            local row = button(UI.roster, "", y, 47, enemy == state.target and C.green or C.button)
+            row.Name = "Target_" .. tostring(enemy.UserId)
+            row.AutoButtonColor = true
+            create("UIStroke", row, {
+                Color = enemy == state.target and Color3.fromRGB(83, 220, 188) or Color3.fromRGB(41, 67, 100),
+                Thickness = 1,
+            })
+            local display = create("TextLabel", row, {
+                Position = UDim2.fromOffset(9, 4), Size = UDim2.new(1, -58, 0, 22),
+                BackgroundTransparency = 1, Text = enemy.DisplayName,
+                Font = Enum.Font.GothamBold, TextSize = 12, TextColor3 = C.white,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            })
+            create("TextLabel", row, {
+                Position = UDim2.fromOffset(9, 26), Size = UDim2.new(1, -58, 0, 15),
+                BackgroundTransparency = 1, Text = "@" .. enemy.Name,
+                Font = Enum.Font.Gotham, TextSize = 10, TextColor3 = C.muted,
+                TextXAlignment = Enum.TextXAlignment.Left,
+                TextTruncate = Enum.TextTruncate.AtEnd,
+            })
+            local avatar = create("ImageLabel", row, {
+                Name = "Avatar", Position = UDim2.new(1, -43, 0, 5),
+                Size = UDim2.fromOffset(37, 37),
+                BackgroundColor3 = Color3.fromRGB(17, 34, 54), BorderSizePixel = 0,
+                Image = "", ScaleType = Enum.ScaleType.Crop,
+            })
+            corner(avatar, 19)
+            queueThumbnail(enemy.UserId, avatar)
+            entries[enemy.UserId] = row
+            rosterConnections[#rosterConnections + 1] = row.Activated:Connect(function()
                 if not clean.alive or enemy.Parent ~= Players then return end
+                -- Selecting is purely a UI operation: NO teleport and NO auto-aim.
+                if state.follow or state.resumeFollow then stopFollow(false) end
                 state.target = enemy
-                if SET.aim then
-                    state.aimTarget = enemy
-                    aimHud.Text = "●"
-                    aimHud.BackgroundColor3 = C.green
-                end
                 corrections, previousTp = 0, nil
-                for _, other in pairs(entries) do other.BackgroundColor3 = C.button end
-                b.BackgroundColor3 = C.green
-                local ok, reason = teleport(true)
-                status(ok and ("Цель: @" .. enemy.Name .. " • TP применён локально")
-                    or ("Цель @" .. enemy.Name .. ": " .. tostring(reason)), ok and "ok" or "error")
+                for id, other in pairs(entries) do
+                    local selected = id == enemy.UserId
+                    other.BackgroundColor3 = selected and C.green or C.button
+                    local stroke = other:FindFirstChildOfClass("UIStroke")
+                    if stroke then stroke.Color = selected and Color3.fromRGB(83, 220, 188)
+                        or Color3.fromRGB(41, 67, 100) end
+                end
+                paintFollow()
+                status("Цель: @" .. enemy.Name .. " • нажми START для TP", "ok")
             end)
-            y = y + 49
+            y = y + 53
         end
     end
-    if y == 4 then label(UI.roster, "В этом сервере нет других игроков", 4, 54) end
-    UI.roster.CanvasSize = UDim2.fromOffset(0, y + 8)
+    if y == 5 then label(UI.roster, "На сервере пока нет других игроков", 5, 52) end
+    UI.roster.CanvasSize = UDim2.fromOffset(0, y + 5)
 end
-clean:connect(UI.refresh.Activated, rebuildRoster)
-clean:connect(Players.PlayerAdded, function()
-    task.defer(rebuildRoster)
-end)
+local function scheduleRosterUpdate()
+    if rosterRefreshPending or not clean.alive then return end
+    rosterRefreshPending = true
+    task.defer(function()
+        if clean.alive then rebuildRoster() end
+    end)
+end
+clean:connect(Players.PlayerAdded, scheduleRosterUpdate)
 clean:connect(Players.PlayerRemoving, function(player)
     if state.target == player then
         state.target = nil
@@ -600,19 +691,17 @@ clean:connect(Players.PlayerRemoving, function(player)
         hilite.Enabled, hilite.Adornee = false, nil
         aimHud.Text, aimHud.BackgroundColor3 = "◎", C.button
     end
-    task.defer(rebuildRoster)
+    scheduleRosterUpdate()
 end)
 clean:connect(UI.start.Activated, startFollow)
--- Additional immediate positioning on an attack click (PC only).
-clean:connect(UserInputService.InputBegan, function(inputObj, processed)
-    if state.follow and not processed and inputObj.UserInputType == Enum.UserInputType.MouseButton1 then
-        pcall(teleport, true)
-    end
+clean:connect(UI.stop.Activated, function()
+    stopFollow(false)
+    status("FOLLOW остановлен")
 end)
-clean:connect(UI.stop.Activated, function() stopFollow(false); status("FOLLOW остановлен") end)
 clean:connect(UI.once.Activated, function()
     local ok, reason = teleport(true)
-    status(ok and "TP ONCE: позиция изменена локально" or ("TP ONCE: " .. tostring(reason)), ok and "ok" or "error")
+    status(ok and "TP ONCE: позиция изменена локально" or ("TP ONCE: " .. tostring(reason)),
+        ok and "ok" or "error")
 end)
 clean:connect(UI.dist.FocusLost, function()
     local n = tonumber(UI.dist.Text)
@@ -709,21 +798,17 @@ local function aimTick()
 end
 local function switchAim(on)
     SET.aim = on == true
-    if SET.aim and not state.aimTarget then
-        -- One tap really enables AIM: first honor the roster selection,
-        -- otherwise grab the closest on-screen opponent automatically.
-        state.aimTarget = (state.target and aimPoint(state.target) and state.target) or pickTarget()
-    end
+    -- Never auto-lock on activation; a separate deliberate tap is required.
     if not SET.aim then
         state.aimTarget = nil
-        clean:unbind("TSB_DELTA_v35_Aim")
+        clean:unbind("TSB_DELTA_v36_Aim")
         restoreRotation()
     else
-        clean:bind("TSB_DELTA_v35_Aim", Enum.RenderPriority.Last.Value - 1, function()
+        clean:bind("TSB_DELTA_v36_Aim", Enum.RenderPriority.Last.Value - 1, function()
             local ok, err = pcall(aimTick)
             if not ok and os.clock() - (state.lastAimError or 0) > 3 then
                 state.lastAimError = os.clock()
-                warn("[TSB v35 AIM] " .. tostring(err))
+                warn("[TSB v36 AIM] " .. tostring(err))
             end
         end)
     end
@@ -731,8 +816,7 @@ local function switchAim(on)
 end
 clean:connect(UI.aim.Activated, function()
     switchAim(not SET.aim)
-    status(SET.aim and (state.aimTarget and ("AIM: захвачен @" .. state.aimTarget.Name)
-        or "AIM включён • выбери игрока или нажми ◎") or "AIM выключен")
+    status(SET.aim and "AIM готов • цель не захвачена. Нажми ◎" or "AIM выключен")
 end)
 clean:connect(aimHud.Activated, function()
     if not SET.aim or wasDragged(aimHud) then return end
@@ -741,7 +825,7 @@ clean:connect(aimHud.Activated, function()
         restoreRotation()
         status("AIM: цель снята")
     else
-        state.aimTarget = pickTarget()
+        state.aimTarget = (state.target and aimPoint(state.target) and state.target) or pickTarget()
         status(state.aimTarget and ("AIM захватил @" .. state.aimTarget.Name)
             or "AIM: наведи центр экрана на игрока или выбери его", state.aimTarget and "ok" or "error")
     end
@@ -813,7 +897,7 @@ local function enterSafe()
     state.safeReturn = root.CFrame
     local y = math.max(workspace.FallenPartsDestroyHeight + 18, -80)
     local part = create("Part", workspace, {
-        Name = "TSB_v35_LocalSafeFloor", Size = Vector3.new(24, 2, 24),
+        Name = "TSB_v36_LocalSafeFloor", Size = Vector3.new(24, 2, 24),
         CFrame = CFrame.new(root.Position.X, y - 4, root.Position.Z),
         Anchored = true, CanCollide = true, CanTouch = false, CanQuery = false,
         Transparency = 1, CastShadow = false,
@@ -842,11 +926,11 @@ local function monitorCharacter(character)
     if humDiedConn then humDiedConn:Disconnect(); humDiedConn = nil end
     local hum = character:FindFirstChildOfClass("Humanoid") or character:WaitForChild("Humanoid", 8)
     if not clean.alive or not hum then return end
-    humHealthConn = clean:connect(hum.HealthChanged, function(health)
+    humHealthConn = hum.HealthChanged:Connect(function(health)
         if SET.safe and not state.safeActive and not state.coordinate
             and health > 0 and health <= SET.safeThreshold then pcall(enterSafe) end
     end)
-    humDiedConn = clean:connect(hum.Died, function()
+    humDiedConn = hum.Died:Connect(function()
         if state.follow then stopFollow(true) end
         if SET.reset then
             task.defer(function()
@@ -944,7 +1028,7 @@ clean:connect(UI.coord.Activated, function()
     -- BELOW FallenPartsDestroyHeight cannot safely be reached client-side.
     -- Keep the requested coordinate, but never promise it will survive physics.
     state.coordPart = create("Part", workspace, {
-        Name = "TSB_v35_CoordFloor", Size = Vector3.new(26, 2, 26),
+        Name = "TSB_v36_CoordFloor", Size = Vector3.new(26, 2, 26),
         Anchored = true, CanCollide = true, CanTouch = false, CanQuery = false,
         CFrame = CFrame.new(TARGET_COORD.Position - Vector3.new(0, 4, 0)),
         Transparency = 1,
@@ -966,7 +1050,7 @@ local visual = {
     effects = setmetatable({}, {__mode = "k"}),
     candidates = {}, seen = setmetatable({}, {__mode = "k"}),
     distanceOriginal = setmetatable({}, {__mode = "k"}),
-    objects = 0, skipped = 0, fx = 0, conn = nil,
+    objects = 0, skipped = 0, fx = 0, conn = nil, pending = {}, head = 1,
 }
 local function playerModel(obj)
     local model = obj:FindFirstAncestorOfClass("Model")
@@ -992,6 +1076,11 @@ end
 local function processVisual(obj)
     if not visual.running or not obj or not obj.Parent then return end
     local kind = obj.ClassName
+    -- Filter cheap object classes BEFORE ancestor queries (large maps have
+    -- thousands of irrelevant constraints, scripts, folders, and attachments).
+    if not fxClasses[kind] and kind ~= "PointLight" and kind ~= "SpotLight"
+        and kind ~= "SurfaceLight" and not obj:IsA("PostEffect")
+        and not obj:IsA("BasePart") then return end
     -- Don't interfere with player models, attack effects, or gameplay UI.
     if playerModel(obj) then visual.skipped = visual.skipped + 1; return end
     if fxClasses[kind] then
@@ -1059,7 +1148,7 @@ local function stopVisual()
     end
     visual.changed, visual.effects = setmetatable({}, {__mode = "k"}), setmetatable({}, {__mode = "k"})
     visual.seen, visual.candidates = setmetatable({}, {__mode = "k"}), {}
-    visual.objects, visual.fx = 0, 0
+    visual.objects, visual.fx, visual.pending, visual.head = 0, 0, {}, 1
 end
 local function scanVisual(token)
     local queue = workspace:GetChildren()
@@ -1083,9 +1172,27 @@ local function startVisual()
     local token = visual.generation
     recordProperty(Lighting, "GlobalShadows", false)
     visual.conn = workspace.DescendantAdded:Connect(function(obj)
-        if visual.running then pcall(processVisual, obj) end
+        if visual.running and #visual.pending - visual.head < 1800 then
+            visual.pending[#visual.pending + 1] = obj
+        end
     end)
     task.spawn(scanVisual, token)
+    -- Process at most 70 newly-added visual objects per batch, off event callbacks.
+    task.spawn(function()
+        while clean.alive and visual.running and visual.generation == token do
+            local handled = 0
+            while handled < 70 and visual.head <= #visual.pending do
+                local obj = visual.pending[visual.head]
+                visual.head = visual.head + 1
+                if obj and obj.Parent then pcall(processVisual, obj) end
+                handled = handled + 1
+            end
+            if visual.head > #visual.pending then
+                visual.pending, visual.head = {}, 1
+            end
+            task.wait(0.08)
+        end
+    end)
     task.spawn(function()
         while clean.alive and visual.running and visual.generation == token do
             local total = 0
@@ -1206,7 +1313,7 @@ local function runRemote(key, btn, field, caption)
             field.Text = "ОШИБКА ЗАГРУЗКИ: " .. tostring(errorMsg):sub(1, 190)
             btn.Text = "↻ ПОВТОРИТЬ " .. caption
             status(caption .. ": недоступен исходник", "error")
-            warn("[TSB v35/" .. key .. "] " .. tostring(errorMsg))
+            warn("[TSB v36/" .. key .. "] " .. tostring(errorMsg))
             return
         end
         local okCompile, fn, why = pcall(loadstring, source)
@@ -1232,7 +1339,7 @@ local function runRemote(key, btn, field, caption)
             btn.Text = "↻ ПОВТОРИТЬ " .. caption
             field.Text = "ОШИБКА ВЫПОЛНЕНИЯ: " .. tostring(result):sub(1, 185)
             status(caption .. ": ошибка запуска", "error")
-            warn("[TSB v35/" .. key .. "] " .. tostring(result))
+            warn("[TSB v36/" .. key .. "] " .. tostring(result))
         end
     end)
 end
@@ -1280,12 +1387,12 @@ local function shutdown()
     for name in pairs(clean.bindings) do clean:unbind(name) end
     for _, conn in ipairs(clean.connections) do pcall(function() conn:Disconnect() end) end
     for _, obj in ipairs(clean.instances) do pcall(function() obj:Destroy() end) end
-    if env.__TSB_DELTA_V35_SHUTDOWN == shutdown then env.__TSB_DELTA_V35_SHUTDOWN = nil end
+    if env.__TSB_DELTA_V36_SHUTDOWN == shutdown then env.__TSB_DELTA_V36_SHUTDOWN = nil end
 end
-env.__TSB_DELTA_V35_SHUTDOWN = shutdown
+env.__TSB_DELTA_V36_SHUTDOWN = shutdown
 clean:connect(closeBtn.Activated, shutdown)
 
 rebuildRoster()
 if SET.fps then startVisual() end
 paintVisual()
-status("v35 готов • цель → TP сразу • START → сопровождение", "ok")
+status("v36 готов • выбор цели → START для TP • AIM без захвата", "ok")
