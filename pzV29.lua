@@ -1,4 +1,4 @@
--- TSB_DELTA_v33 | one-click external INVIS loader; model-following cyan AIM highlight.
+-- TSB_DELTA_v34 | one-click external INVIS loader; model-following cyan AIM highlight.
 -- Target-only positioner; no automatic target selection.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- Cyan AIM glow follows the actual target character (no screen-aligned square).
@@ -23,8 +23,8 @@ local Camera = workspace.CurrentCamera
 -- CONFIG
 -- ============================================================
 local CONFIG = {
-    BEHIND_STUDS = 4.0, -- default behind the enemy: adjust 3-5 studs to suit melee range
-    POSITION_TOLERANCE = 0.38, -- suppress tiny per-frame position jitter, not a time-based delay
+    BEHIND_STUDS = 3.0, -- closer rear offset; actual melee hit validation remains server-side
+    POSITION_TOLERANCE = 0.14, -- avoid jitter without introducing any cooldown
     VISUAL_RADIUS = 160, -- cosmetic local distance only, NOT real streaming
     VISUAL_DISTANCE_ENABLED = true,
 
@@ -36,8 +36,8 @@ local CONFIG = {
     SAFE_DEPTH = 80,
     SAFE_HEIGHT = 130,
 
-    PING_COMPENSATE = true, -- optional short prediction of moving targets
-    MAX_LEAD_TIME = 0.12,
+    PING_COMPENSATE = true, -- predict movement without excessively leading fast dashes
+    MAX_LEAD_TIME = 0.11,
 
     SPEED_ENABLED = false,
     SPEED_VALUE = 42,
@@ -778,7 +778,7 @@ LeadToggle.TextSize = 12
 LeadToggle.TextColor3 = Color3.new(1, 1, 1)
 relayout(LeadToggle, TargetScroll, 8, targetListHeight + 174, innerW, 35)
 Instance.new("UICorner", LeadToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(TargetScroll, "Выбери игрока и нажми START. Отступ обычно 3.5–4.5 studs, меняется выше. TP непрерывный; STOP останавливает. Дальность удара определяет сервер.", targetListHeight + 217, 58)
+infoLabel(TargetScroll, "Выбор игрока = мгновенный TP. START = постоянное слежение. Отступ обычно 2.8–3.2 studs. STOP останавливает слежение. Попадания проверяет сервер.", targetListHeight + 217, 58)
 TargetScroll.CanvasSize = UDim2.fromOffset(0, targetListHeight + 282)
 
 -- Feature page can scroll independently (all old buttons remain functional).
@@ -1669,41 +1669,46 @@ local function reliableTargetPose(targetRoot)
     return pos, flat.Unit, ragdolled
 end
 
+-- Calculate one small, physically bounded prediction. This runs in the
+-- same frame as the actual character teleport, not in a cosmetic clone.
+-- We cannot know the server's exact future position or force server hit range.
+local function predictMovingTarget(targetHRP, pos, facing, behindDistance)
+    if not CONFIG.PING_COMPENSATE and not CONFIG.SS_POSITIONING then
+        return pos, facing
+    end
+    local velocity = targetHRP.AssemblyLinearVelocity
+    local planar = Vector3.new(velocity.X, 0, velocity.Z)
+    local speed = planar.Magnitude
+    -- Extremely large velocities generally indicate knockback or a dash;
+    -- extrapolating them would put the player several studs away from melee.
+    if speed > 90 then planar = planar.Unit * 90 end
+    local ping = math.clamp(getPing(), 0, 300)
+    local horizon = math.clamp(ping / 2000 + 0.018, 0.012,
+        CONFIG.SS_POSITIONING and 0.12 or CONFIG.MAX_LEAD_TIME)
+    local lead = planar * horizon
+    local maximum = math.min(3.2, behindDistance * 0.85 + 0.3)
+    if lead.Magnitude > maximum then lead = lead.Unit * maximum end
+    pos = pos + lead
+    if CONFIG.SS_POSITIONING then
+        local angular = targetHRP.AssemblyAngularVelocity
+        if math.abs(angular.Y) > 0.1 and math.abs(angular.Y) < 20 then
+            local turned = CFrame.Angles(0, angular.Y * horizon, 0):VectorToWorldSpace(facing)
+            local flat = Vector3.new(turned.X, 0, turned.Z)
+            if flat.Magnitude > 0.05 then facing = flat.Unit end
+        end
+    end
+    return pos, facing
+end
+
 function Positioner.getBehindCFrame(targetHRP, distance)
     local pos, flatLook, ragdolled = reliableTargetPose(targetHRP)
     if not pos then return nil end
     local studs = math.clamp(distance or CONFIG.BEHIND_STUDS, 2.1, 8)
-    if CONFIG.SS_POSITIONING and not ragdolled then
-        -- Alternative source formula. Capped extrapolation and predicted facing.
-        local dt=math.min(math.clamp(getPing(),0,300)/1000*1.3,0.12)
-        local velocity=targetHRP.AssemblyLinearVelocity
-        local flatVel=Vector3.new(velocity.X,0,velocity.Z)
-        local lead=flatVel*dt
-        if lead.Magnitude>3 then lead=lead.Unit*3 end
-        pos=pos+lead
-        local ang=targetHRP.AssemblyAngularVelocity
-        if ang.Magnitude>0.1 then
-            local delta=CFrame.fromAxisAngle(ang.Unit,math.min(ang.Magnitude*dt,math.pi/2))
-            local rotated=delta:VectorToWorldSpace(flatLook)
-            local flat=Vector3.new(rotated.X,0,rotated.Z)
-            if flat.Magnitude>0.05 then flatLook=flat.Unit end
-        end
-        local destination=Vector3.new(pos.X,pos.Y+CONFIG.HEIGHT_OFFSET,pos.Z)-flatLook*studs
-        if not validPoint(destination) then return nil end
-        return CFrame.lookAt(destination,Vector3.new(pos.X,destination.Y,pos.Z))
+    if not ragdolled then
+        pos, flatLook = predictMovingTarget(targetHRP, pos, flatLook, studs)
     end
-    -- Short, bounded prediction: optional and disabled for unstable ragdoll physics.
-    if CONFIG.PING_COMPENSATE and not ragdolled then
-        local velocity = targetHRP.AssemblyLinearVelocity
-        local flatVel = Vector3.new(velocity.X, 0, velocity.Z)
-        local ping = math.clamp(getPing(), 0, 300)
-        -- Network prediction is capped. Avoid extrapolating a fast dash across
-        -- the arena; the server still decides collision and melee hit range.
-        local leadTime = math.clamp(ping / 1000 * 0.75 + 0.025, 0, CONFIG.MAX_LEAD_TIME)
-        local lead = flatVel * leadTime
-        if lead.Magnitude > 4.5 then lead = lead.Unit * 4.5 end
-        pos = pos + lead
-    end
+    -- Behind the TARGET'S facing direction, never behind their movement vector.
+    -- This keeps the position at their back even while running sideways.
     local destination = pos - flatLook * studs
     local y = pos.Y + CONFIG.HEIGHT_OFFSET
     if ragdolled then
@@ -1713,10 +1718,10 @@ function Positioner.getBehindCFrame(targetHRP, distance)
         local hit = workspace:Raycast(destination + Vector3.new(0, 7, 0),
             Vector3.new(0, -24, 0), params)
         if hit then
-            -- Keep feet near the floor when the target is knocked down.
             local root = getHRP(Player)
             local hum = speedHumanoid()
-            local standingHeight = (hum and hum.HipHeight or 2) + (root and root.Size.Y * 0.5 or 1) + 0.1
+            local standingHeight = (hum and hum.HipHeight or 2)
+                + (root and root.Size.Y * 0.5 or 1) + 0.1
             y = hit.Position.Y + standingHeight
         end
     end
@@ -1796,7 +1801,7 @@ function Positioner.teleport(force)
         end)
         if not ok then errorText = tostring(err) end
         local measured = (root.Position - targetCF.Position).Magnitude
-        if ok and measured <= 2.8 then
+        if ok and measured <= 0.65 then
             TPDiag.applied = TPDiag.applied + 1
             TPDiag.lastApplied = targetCF.Position
             TPDiag.lastTime = os.clock()
@@ -1947,16 +1952,22 @@ local function RefreshPlayerList()
 
             entry.Activated:Connect(function()
                 if not Active or opponent.Parent~=Players then return end
-                if BackstabActive and StopBackstab then StopBackstab() end
+                -- Do NOT stop the active follow loop on a target switch.
+                -- Teleport synchronously on selection, no START press required.
                 SelectedTarget = opponent
+                TPDiag.corrections = 0
+                local tpOK, tpMoved, tpMessage = pcall(Positioner.teleport, true)
                 for _, data in pairs(PlayerButtons) do
                     data.entry.BackgroundColor3 = Color3.fromRGB(37, 44, 60)
                     data.mark.Text = ""
                 end
                 entry.BackgroundColor3 = Color3.fromRGB(20, 86, 82)
                 mark.Text = "✓"
-                StatusLabel.Text = "Цель выбрана. Нажми START для постоянного TP"
-                StatusLabel.TextColor3 = Color3.fromRGB(142, 242, 191)
+                StatusLabel.Text = tpOK and tpMoved
+                    and (BackstabActive and "Новая цель: локальный TP + слежение" or "TP применён локально • START для слежения")
+                    or ("Цель выбрана • TP: " .. tostring(tpOK and tpMessage or tpMoved):sub(1, 75))
+                StatusLabel.TextColor3 = tpOK and tpMoved
+                    and Color3.fromRGB(142, 242, 191) or Color3.fromRGB(255, 182, 105)
             end)
             PlayerButtons[opponent.UserId] = {entry = entry, mark = mark}
             y = y + 49
@@ -2056,7 +2067,6 @@ local function disconnectAimTargetSignals()
 end
 
 local function clearAimTarget()
-    -- Death is a complete unlock, not a pause until character respawns.
     disconnectAimTargetSignals()
     AimTarget = nil
     AimTargetCharacter = nil
@@ -2064,6 +2074,36 @@ local function clearAimTarget()
     AimHud.BackgroundColor3 = Color3.fromRGB(91, 96, 107)
     AimHudStroke.Color = Color3.fromRGB(176, 183, 197)
     AimHud.Text = "◎"
+end
+
+-- In duel arenas Roblox can remove and recreate both character models.
+-- Keep the player's explicit manual lock, then attach it to the new live rig.
+local function bindAimCharacter(character)
+    disconnectAimTargetSignals()
+    AimTargetCharacter = character
+    local hum = character and character:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    AimTargetHealthConnection = hum.HealthChanged:Connect(function(health)
+        if health <= 0 and AimTargetCharacter == character then
+            AimTargetCharacter = nil
+            refreshAimHighlight()
+        end
+    end)
+    AimTargetDeathConnection = hum.Died:Connect(function()
+        if AimTargetCharacter == character then
+            AimTargetCharacter = nil
+            refreshAimHighlight()
+        end
+    end)
+    if AimTarget then
+        local boundPlayer = AimTarget
+        AimTargetRemovingConnection = boundPlayer.CharacterRemoving:Connect(function(removed)
+            if AimTarget == boundPlayer and removed == character then
+                AimTargetCharacter = nil
+                refreshAimHighlight()
+            end
+        end)
+    end
 end
 
 local function acquireAimTarget()
@@ -2086,32 +2126,18 @@ local function acquireAimTarget()
             end
         end
     end
+    -- Duel cutscenes or custom cameras can make all avatars temporarily
+    -- offscreen. If the user selected a named opponent, use that *same* player.
+    if not nearest and SelectedTarget and isAlive(SelectedTarget) then
+        nearest = SelectedTarget
+    end
     if not nearest then return false end
-    -- Lock only the current *living* character. Never relock automatically on respawn.
     local character = nearest.Character
     local humanoid = character and character:FindFirstChildOfClass("Humanoid")
     if not humanoid or humanoid.Health <= 0 then return false end
     clearAimTarget()
     AimTarget = nearest
-    AimTargetCharacter = character
-    AimTargetHealthConnection = humanoid.HealthChanged:Connect(function(health)
-        if health <= 0 and AimTarget == nearest then
-            clearAimTarget()
-            StatusLabel.Text = "AIM: цель погибла, захват сброшен"
-        end
-    end)
-    AimTargetDeathConnection = humanoid.Died:Connect(function()
-        if AimTarget == nearest then
-            clearAimTarget()
-            StatusLabel.Text = "AIM: цель погибла, захват сброшен"
-        end
-    end)
-    AimTargetRemovingConnection = nearest.CharacterRemoving:Connect(function(removed)
-        if AimTarget == nearest and removed == character then
-            clearAimTarget()
-            StatusLabel.Text = "AIM: персонаж исчез, захват сброшен"
-        end
-    end)
+    bindAimCharacter(character)
     refreshAimHighlight()
     AimHud.BackgroundColor3 = Color3.fromRGB(20, 127, 110)
     AimHudStroke.Color = Color3.fromRGB(118, 244, 195)
@@ -2146,20 +2172,25 @@ end
 local function updateAim()
     if not Active then return end
     -- Guard even if a Died signal was missed by the engine or a custom rig.
-    if AimTarget and (not isAlive(AimTarget) or AimTarget.Character ~= AimTargetCharacter) then
-        clearAimTarget()
-        StatusLabel.Text = "AIM: цель недоступна, захват сброшен"
+    if AimTarget then
+        if AimTarget.Parent ~= Players then
+            clearAimTarget()
+        elseif isAlive(AimTarget) and AimTarget.Character ~= AimTargetCharacter then
+            bindAimCharacter(AimTarget.Character)
+        end
     end
     refreshAimHighlight()
     refreshRotationLock()
     -- A fixed manual lock always takes priority; follow cannot steal it.
     if CONFIG.AIM_ENABLED and AimTarget then
         local root = getHRP(AimTarget)
-        if root and isAlive(AimTarget) then
+        if root and isAlive(AimTarget) and AimTargetCharacter == AimTarget.Character then
             -- The camera is aligned after Roblox' camera controller, so Shift
             -- Lock cannot silently steal the lock. Position stays unchanged.
             local camera = workspace.CurrentCamera
-            if camera and camera.CameraType ~= Enum.CameraType.Scriptable then
+            if camera then
+                -- Duels often install a Scriptable camera; it must not disable
+                -- an explicitly selected AIM lock. Apply after their camera code.
                 local point = reliableTargetPose(root)
                 if point then
                     local origin = camera.CFrame.Position
@@ -2174,8 +2205,8 @@ local function updateAim()
             Positioner.faceTarget(root)
             return
         end
-        -- Invalid humanoid cannot remain locked. Only a fresh tap may acquire.
-        clearAimTarget()
+        -- Keep the manual lock during brief duel respawns / character swaps.
+        -- Never aim at the old (already removed) rig.
         return
     end
     -- Without a manual lock, TP modes can orient the avatar as before.
@@ -2215,7 +2246,7 @@ AimHud.Activated:Connect(function()
         StatusLabel.Text = "AIM: наведи центр экрана на игрока"
     end
 end)
-RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10, updateAim)
+RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Last.Value - 1, updateAim)
 
 -- ============================================================
 -- START / STOP: zero artificial cooldown; frame-driven tracking.
@@ -2300,7 +2331,7 @@ StartBackstab = function()
         CONFIG.SAFE_ZONE=false
         paintToggle(SafeToggle,"SAVE ZONA",false)
     end
-    -- Repeated START is idempotent: don't create additional render hooks.
+    -- Repeated START is idempotent: don't create additional follow hooks.
     if PositionConnection then PositionConnection:Disconnect(); PositionConnection=nil end
     if FollowAttackConnection then FollowAttackConnection:Disconnect(); FollowAttackConnection=nil end
     if FollowAnimationConnection then FollowAnimationConnection:Disconnect(); FollowAnimationConnection=nil end
@@ -2315,10 +2346,11 @@ StartBackstab = function()
     StatusLabel.Text=moved and "TP запущен: слежение без задержки" or "TP: "..tostring(reason)
     StatusLabel.TextColor3=moved and Color3.fromRGB(109,244,169) or Color3.fromRGB(255,182,105)
 
-    -- One PreSimulation tick per frame avoids two competing position writes.
-    -- START itself teleports immediately above (no sleep/cooldown).
-    -- Roblox may still rollback non-authoritative positions.
-    PositionConnection=RunService.PreSimulation:Connect(function()
+    -- Heartbeat runs after physics, but before outbound replication updates.
+    -- One real-character CFrame update per frame, not a rendered fake/clone.
+    -- START itself teleports synchronously (zero artificial cooldown).
+    -- Server anti-cheat and latency can still correct movement or reject hits.
+    PositionConnection=RunService.Heartbeat:Connect(function()
         if BackstabActive then
             local ok, err = pcall(runFollowTick, false)
             if not ok then followLastError = tostring(err) end
@@ -2648,35 +2680,60 @@ SafeToggle.Activated:Connect(function()
     paintToggle(SafeToggle, "SAVE ZONA", CONFIG.SAFE_ZONE)
 end)
 
--- INVIS: button triggers the exact user-provided one-liner, without altering
--- the external loader or creating any second INV UI. HTTP is outside our control.
+-- INVIS: one button runs the requested external loader, not a cosmetic
+-- LocalTransparencyModifier trick. The remote code may change or be removed.
 local InvisLaunching = false
+local INVIS_URL = "https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"
+local function fetchInvisSource()
+    local success, result = pcall(function()
+        return game:HttpGet(INVIS_URL)
+    end)
+    if success and type(result) == "string" and #result > 0 then return result end
+    local lastError = tostring(result)
+    -- Some Roblox executors expose request() but not game:HttpGet().
+    local httpRequest = (type(request) == "function" and request)
+        or (type(http_request) == "function" and http_request)
+        or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
+    if httpRequest then
+        local ok, response = pcall(httpRequest, {Url = INVIS_URL, Method = "GET"})
+        if ok and response and (response.StatusCode == 200 or response.StatusCode == nil)
+            and type(response.Body) == "string" and #response.Body > 0 then
+            return response.Body
+        end
+        if not ok then lastError = tostring(response) end
+        if ok and response then lastError = "HTTP " .. tostring(response.StatusCode) end
+    end
+    error("INVIS: загрузчик недоступен (" .. lastError .. ")")
+end
 InvisLaunchButton.Activated:Connect(function()
     if not Active or closing then return end
-    if InvisLaunching then
-        InvisStatus.Text = "INVIS: загрузка уже идёт. Следи за сообщением."
-        return
-    end
+    if InvisLaunching then return end
     InvisLaunching = true
-    InvisStatus.Text = "INVIS: запуск ссылки Airbornite..."
+    InvisStatus.Text = "INVIS: загрузка Airbornite..."
     InvisStatus.TextColor3 = Color3.fromRGB(208, 230, 255)
     InvisLaunchButton.Text = "⌛ ЗАПУСК INVIS..."
     task.spawn(function()
         local success, problem = pcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
+            if type(loadstring) ~= "function" then
+                error("Executor не поддерживает loadstring")
+            end
+            local source = fetchInvisSource()
+            local compiled, compileError = loadstring(source)
+            if type(compiled) ~= "function" then error(tostring(compileError)) end
+            -- Equivalent to the user-provided loadstring(game:HttpGet(URL))().
+            compiled()
         end)
         InvisLaunching = false
         if not Active or closing then return end
         InvisLaunchButton.Text = "▶ ЗАПУСТИТЬ INVIS"
         if success then
-            -- An external loader returning successfully does not prove invisibility.
-            InvisStatus.Text = "INVIS: загрузчик выполнен; управление — во внешнем скрипте."
+            InvisStatus.Text = "INVIS: внешний скрипт запущен. Результат зависит от него."
             InvisStatus.TextColor3 = Color3.fromRGB(130, 231, 205)
         else
             local reason = tostring(problem):gsub("[\r\n]+", " ")
             InvisStatus.Text = ("INVIS: ошибка: " .. reason):sub(1, 180)
             InvisStatus.TextColor3 = Color3.fromRGB(255, 163, 144)
-            warn("[TSB_DELTA_v33/INVIS] " .. reason)
+            warn("[TSB_DELTA_v34/INVIS] " .. reason)
         end
     end)
 end)
