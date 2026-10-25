@@ -1,8 +1,8 @@
--- TSB_DELTA_v31 | direct external Invis button, close-range follow, aim corner brackets
+-- TSB_DELTA_v32 | one-click external INVIS loader; model-following cyan AIM highlight.
 -- Target-only positioner; no automatic target selection.
 -- No server-side guarantees: simulated skill inputs may be rejected.
--- FPS optimizations are reversible; cyan aim brackets only on locked target.
--- No personal naming or identifiers in window titles or files.
+-- Cyan AIM glow follows the actual target character (no screen-aligned square).
+-- Only the requested external INVIS command is used; no built-in INVIS engine.
 
 -- ============================================================
 -- SERVICES
@@ -305,7 +305,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
+    for _, key in ipairs({"__TSB_DELTA_V32_SHUTDOWN", "__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -320,7 +320,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v31" or gui.Name == "TSB_DELTA_v30" or gui.Name == "TSB_DELTA_AIM_OVERLAY") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v32" or gui.Name == "TSB_DELTA_v31" or gui.Name == "TSB_DELTA_v30" or gui.Name == "TSB_DELTA_AIM_OVERLAY") then
                 gui:Destroy()
             end
         end
@@ -328,7 +328,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_DELTA_v31"
+ScreenGui.Name = "TSB_DELTA_v32"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -387,7 +387,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB_DELTA_v31"
+Title.Text = "TSB_DELTA_v32"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 13
@@ -643,7 +643,7 @@ do
 -- Compact mobile panel, three pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB_DELTA_v31"
+Title.Text = "TSB_DELTA_v32"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -800,7 +800,7 @@ end
 feature(SafeToggle, 8, 8, halfW, 34)
 feature(ResetToggle, rightX, 8, rightW, 34)
 feature(InvisLaunchButton, 8, 50, innerW, 34)
-local InvisStatus = infoLabel(ControlsScroll, "Invis: кнопка запускает указанный внешний скрипт. INV — повторный запуск.", 90, 52)
+local InvisStatus = infoLabel(ControlsScroll, "INVIS: нажми кнопку выше, чтобы выполнить внешний загрузчик.", 90, 52)
 feature(SpeedToggle, 8, 150, halfW, 34)
 feature(SpeedInput, rightX, 150, rightW, 34)
 -- Compact layout: core functions only; every control has an independent row.
@@ -1092,31 +1092,6 @@ end)
 
 Refs.floatingConnections=floatingConnections
 
--- Small draggable launcher remains visible even when the external loader
--- creates no GUI. It does NOT emulate or patch the external Invis engine.
-local launchInvis = nil
-local InvisDock = Instance.new("TextButton")
-InvisDock.Name="InvisLauncher"
-InvisDock.Size=UDim2.fromOffset(34,34)
-InvisDock.Position=UDim2.fromOffset(math.max(4, viewport.X-90), math.floor(viewport.Y*0.43))
-InvisDock.BackgroundColor3=Color3.fromRGB(24,104,120)
-InvisDock.BorderSizePixel=0
-InvisDock.Text="INV"
-InvisDock.Font=Enum.Font.GothamBold
-InvisDock.TextSize=11
-InvisDock.TextColor3=Color3.fromRGB(235,255,255)
-InvisDock.Visible=false
-InvisDock.Active=true
-InvisDock.ZIndex=40
-InvisDock.Parent=ScreenGui
-Instance.new("UICorner",InvisDock).CornerRadius=UDim.new(0,9)
-local invisDockStroke=Instance.new("UIStroke",InvisDock)
-invisDockStroke.Color=Color3.fromRGB(94,220,234)
-invisDockStroke.Thickness=1
-makeDraggableFloating(InvisDock,function()
-    if launchInvis then launchInvis() end
-end)
-
 -- Touch-friendly circular AIM button, draggable and without target overlay.
 local AimHud = Instance.new("TextButton")
 AimHud.Name = "AimLockSelect"
@@ -1163,9 +1138,9 @@ local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V31"
+local AimRenderName = "TSB_DELTA_AIM_V32"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V31"
+local MoveRenderName = "TSB_DELTA_MOVE_V32"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -2033,87 +2008,36 @@ local function Message(Title, Text, Time)
     end)
 end
 
--- AIM CORNERS: four cyan brackets on the selected aim target only.
--- A separate screen-aligned overlay avoids obscuring avatars with Highlight.FillColor.
-local AimOverlayGui=Instance.new("ScreenGui")
-AimOverlayGui.Name="TSB_DELTA_AIM_OVERLAY"
-AimOverlayGui.ResetOnSpawn=false
-AimOverlayGui.IgnoreGuiInset=true
-AimOverlayGui.DisplayOrder=149
-AimOverlayGui.ZIndexBehavior=Enum.ZIndexBehavior.Global
-AimOverlayGui.Parent=ScreenGui.Parent
-local AimCorners=Instance.new("Frame")
-AimCorners.Name="Corners"
-AimCorners.BackgroundTransparency=1
-AimCorners.BorderSizePixel=0
-AimCorners.Visible=false
-AimCorners.Active=false
-AimCorners.Parent=AimOverlayGui
-local aimSegments={}
-for i=1,8 do
-    local edge=Instance.new("Frame")
-    edge.Name="CornerEdge"..i
-    edge.BorderSizePixel=0
-    edge.BackgroundColor3=Color3.fromRGB(28,207,255)
-    edge.BackgroundTransparency=0
-    edge.ZIndex=6
-    edge.Parent=AimCorners
-    local glow=Instance.new("UIStroke")
-    glow.Color=Color3.fromRGB(38,184,255)
-    glow.Thickness=2.5
-    glow.Transparency=0.45
-    glow.Parent=edge
-    aimSegments[i]=edge
-end
-local function paintAimCorners()
-    if not Active or not CONFIG.AIM_ENABLED or not AimTarget then
-        AimCorners.Visible=false
-        return
+-- AIM GLOW: Roblox Highlight is attached to the CHARACTER MODEL, not a 2D box.
+-- Outline follows body, head, accessories and silhouette during animations.
+-- Only one local Highlight exists; replacing target or respawning changes Adornee.
+local AimHighlight = Instance.new("Highlight")
+AimHighlight.Name = "TSB_DELTA_AIM_GLOW"
+AimHighlight.Enabled = false
+AimHighlight.FillColor = Color3.fromRGB(28, 185, 255)
+AimHighlight.FillTransparency = 0.88 -- subtle skin glow; not an opaque blue avatar
+AimHighlight.OutlineColor = Color3.fromRGB(32, 211, 255)
+AimHighlight.OutlineTransparency = 0 -- contour, never a rectangular UI frame
+AimHighlight.DepthMode = Enum.HighlightDepthMode.Occluded
+AimHighlight.Adornee = nil
+AimHighlight.Parent = workspace
+
+local function refreshAimHighlight()
+    local model = nil
+    if Active and CONFIG.AIM_ENABLED and AimTarget and AimTarget.Parent == Players then
+        local character = AimTarget.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.Health > 0 and character:IsDescendantOf(workspace) then
+            model = character
+        end
     end
-    local root=getHRP(AimTarget)
-    local cam=workspace.CurrentCamera
-    if not root or not cam or not isAlive(AimTarget) then
-        AimCorners.Visible=false
-        return
+    if AimHighlight.Adornee ~= model then
+        AimHighlight.Adornee = model
     end
-    local head=root.Parent:FindFirstChild("Head")
-    local upper=head and (head.Position+Vector3.new(0,head.Size.Y*0.7,0))
-        or (root.Position+Vector3.new(0,3,0))
-    local lower=root.Position-Vector3.new(0,3,0)
-    local top, topVisible=cam:WorldToViewportPoint(upper)
-    local bottom, bottomVisible=cam:WorldToViewportPoint(lower)
-    if top.Z<=0 or bottom.Z<=0 or not (topVisible or bottomVisible) then
-        AimCorners.Visible=false
-        return
-    end
-    local vp=cam.ViewportSize
-    local h=math.clamp(math.abs(bottom.Y-top.Y),30,math.min(vp.Y*.85,380))
-    local w=math.clamp(h*0.55,20,math.min(vp.X*.35,220))
-    local x=math.floor((top.X+bottom.X)*0.5-w*.5)
-    local y=math.floor((top.Y+bottom.Y)*0.5-h*.5)
-    if x+w<0 or x>vp.X or y+h<0 or y>vp.Y then
-        AimCorners.Visible=false
-        return
-    end
-    AimCorners.Visible=true
-    AimCorners.Position=UDim2.fromOffset(x,y)
-    AimCorners.Size=UDim2.fromOffset(w,h)
-    local arm=math.floor(math.clamp(math.min(w,h)*0.23,8,22))
-    local thick=2
-    local specs={
-        {0,0,arm,thick}, {0,0,thick,arm},
-        {w-arm,0,arm,thick}, {w-thick,0,thick,arm},
-        {0,h-thick,arm,thick}, {0,h-arm,thick,arm},
-        {w-arm,h-thick,arm,thick}, {w-thick,h-arm,thick,arm},
-    }
-    for i,part in ipairs(aimSegments) do
-        local s=specs[i]
-        part.Position=UDim2.fromOffset(s[1],s[2])
-        part.Size=UDim2.fromOffset(s[3],s[4])
+    if AimHighlight.Enabled ~= (model ~= nil) then
+        AimHighlight.Enabled = model ~= nil
     end
 end
-local AimCornersRenderName="TSB_DELTA_CORNERS_V31"
-RunService:BindToRenderStep(AimCornersRenderName,Enum.RenderPriority.Camera.Value+12,paintAimCorners)
 
 -- ============================================================
 -- AIM: manual screen-center acquisition; camera + avatar track only that player.
@@ -2121,7 +2045,7 @@ RunService:BindToRenderStep(AimCornersRenderName,Enum.RenderPriority.Camera.Valu
 -- ============================================================
 local function clearAimTarget()
     AimTarget = nil
-    AimCorners.Visible=false
+    refreshAimHighlight()
     AimHud.BackgroundColor3 = Color3.fromRGB(91, 96, 107)
     AimHudStroke.Color = Color3.fromRGB(176, 183, 197)
     AimHud.Text = "◎"
@@ -2150,6 +2074,7 @@ local function acquireAimTarget()
     if not nearest then return false end
     -- One-time acquisition. Never change until AIM OFF or manual unlock.
     AimTarget = nearest
+    refreshAimHighlight()
     AimHud.BackgroundColor3 = Color3.fromRGB(20, 127, 110)
     AimHudStroke.Color = Color3.fromRGB(118, 244, 195)
     AimHud.Text = "●"
@@ -2182,6 +2107,7 @@ end
 
 local function updateAim()
     if not Active then return end
+    refreshAimHighlight() -- also reattaches automatically after the enemy respawns
     refreshRotationLock()
     -- A fixed manual lock always takes priority; follow cannot steal it.
     if CONFIG.AIM_ENABLED and AimTarget then
@@ -2252,7 +2178,7 @@ RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10
 -- START / STOP: zero artificial cooldown; frame-driven tracking.
 -- Moving local CFrame cannot extend melee range or override the server.
 -- ============================================================
-local FollowRenderName = "TSB_DELTA_FOLLOW_V31"
+local FollowRenderName = "TSB_DELTA_FOLLOW_V32"
 local FollowAttackConnection = nil
 local FollowAnimationConnection = nil
 local FollowAnimCharacter = nil
@@ -2678,49 +2604,26 @@ SafeToggle.Activated:Connect(function()
     paintToggle(SafeToggle, "SAVE ZONA", CONFIG.SAFE_ZONE)
 end)
 
--- INVIS: exactly the supplied loader command, no proxy, mirror or replacement.
--- Two native launch controls (menu and draggable INV) call the same function.
--- The external script itself owns the Invis behavior and any GUI it creates.
-local invisLoading=false
-local function paintInvis(label,detail,errorState)
+-- INVIS: single menu button, one literal user-provided command.
+-- No built-in invisibility, no floating launcher, no retry/mirror system.
+InvisLaunchButton.Activated:Connect(function()
     if not Active or closing then return end
-    InvisLaunchButton.Text=label
-    InvisStatus.Text=detail
-    InvisLaunchButton.BackgroundColor3=errorState
-        and Color3.fromRGB(135,44,61) or Color3.fromRGB(22,111,136)
-    InvisDock.Text=errorState and "!" or "INV"
-    InvisDock.BackgroundColor3=errorState
-        and Color3.fromRGB(135,44,61) or Color3.fromRGB(24,104,120)
-end
-launchInvis=function()
-    if not Active or closing or invisLoading then return end
-    InvisDock.Visible=true -- always provide a working launch/retry control
-    if type(loadstring)~="function" then
-        paintInvis("▶ ЗАПУСТИТЬ INVIS", "Ошибка: Delta не предоставляет loadstring.",true)
-        return
-    end
-    invisLoading=true
-    paintInvis("INVIS: ЗАПУСК…","Выполняю именно указанную команду…",false)
-    task.spawn(function()
-        -- No edits to the downloaded script. The user requested literal execution.
-        local ok,err=xpcall(function()
-            loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
-        end,function(message)
-            return tostring(message)
-        end)
-        if not Active or closing then return end
-        invisLoading=false
-        if ok then
-            paintInvis("▶ ЗАПУСТИТЬ INVIS",
-                "Команда выполнена. Интерфейс и работа INVIS зависят от внешнего скрипта.",false)
-        else
-            local reason=tostring(err):gsub("\n"," ")
-            paintInvis("▶ ПОВТОРИТЬ INVIS",("Ошибка загрузчика: "..reason):sub(1,160),true)
-            warn("[TSB_DELTA_v31/INVIS] "..reason)
-        end
+    InvisStatus.Text = "INVIS: выполняю внешний скрипт..."
+    InvisLaunchButton.Text = "▶ ЗАПУСТИТЬ INVIS"
+    local success, problem = pcall(function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
     end)
-end
-InvisLaunchButton.Activated:Connect(launchInvis)
+    if not Active or closing then return end
+    if success then
+        InvisStatus.Text = "INVIS: команда выполнена. Интерфейс создаётся внешним скриптом."
+        InvisStatus.TextColor3 = Color3.fromRGB(130, 231, 205)
+    else
+        local reason = tostring(problem):gsub("[\r\n]+", " ")
+        InvisStatus.Text = ("INVIS: ошибка: " .. reason):sub(1, 180)
+        InvisStatus.TextColor3 = Color3.fromRGB(255, 163, 144)
+        warn("[TSB_DELTA_v32/INVIS] " .. reason)
+    end
+end)
 
 ResetToggle.Activated:Connect(function()
     CONFIG.AUTO_RESET = not CONFIG.AUTO_RESET
@@ -2743,8 +2646,7 @@ Shutdown = function()
     safe(Visual.stop)
     safe(function() setAimEnabled(false) end)
     safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
-    safe(function() RunService:UnbindFromRenderStep(AimCornersRenderName) end)
-    safe(function() AimOverlayGui:Destroy() end)
+    safe(function() AimHighlight:Destroy() end)
     safe(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
     safe(function() CONFIG.SPEED_ENABLED = false; releaseSpeed() end)
     safe(function() if SpeedLoopConnection then SpeedLoopConnection:Disconnect() end end)
@@ -2768,12 +2670,12 @@ Shutdown = function()
     for _, conn in ipairs(CleanupConnections) do
         if conn then safe(function() conn:Disconnect() end) end
     end
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V32_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
