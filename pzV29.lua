@@ -1,7 +1,7 @@
--- TSB_DELTA_v30 | frame-synced target TP + external Invis dock
+-- TSB_DELTA_v31 | direct external Invis button, close-range follow, aim corner brackets
 -- Target-only positioner; no automatic target selection.
 -- No server-side guarantees: simulated skill inputs may be rejected.
--- FPS optimization is reversible and disabled by default; no ESP/outline.
+-- FPS optimizations are reversible; cyan aim brackets only on locked target.
 -- No personal naming or identifiers in window titles or files.
 
 -- ============================================================
@@ -23,8 +23,8 @@ local Camera = workspace.CurrentCamera
 -- CONFIG
 -- ============================================================
 local CONFIG = {
-    BEHIND_STUDS = 2.9,
-    POSITION_TOLERANCE = 0.22,
+    BEHIND_STUDS = 4.0, -- default behind the enemy: adjust 3-5 studs to suit melee range
+    POSITION_TOLERANCE = 0.38, -- suppress tiny per-frame position jitter, not a time-based delay
     VISUAL_RADIUS = 160, -- cosmetic local distance only, NOT real streaming
     VISUAL_DISTANCE_ENABLED = true,
 
@@ -305,7 +305,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
+    for _, key in ipairs({"__TSB_DELTA_V31_SHUTDOWN", "__TSB_DELTA_V30_SHUTDOWN", "__TSB_DELTA_V29_SHUTDOWN", "__TSB_DELTA_V28_SHUTDOWN", "__TSB_DELTA_V27_SHUTDOWN", "__TSB_DELTA_V26_SHUTDOWN", "__TSB_DELTA_V25_SHUTDOWN", "__TSB_DELTA_V24_SHUTDOWN", "__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -320,7 +320,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v30") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23" or gui.Name == "TSB_Delta_V24" or gui.Name == "TSB_Delta_V25" or gui.Name == "TSB_Delta_V26" or gui.Name == "TSB_Delta_V27" or gui.Name == "TSB_DELTA_v31" or gui.Name == "TSB_DELTA_v30" or gui.Name == "TSB_DELTA_AIM_OVERLAY") then
                 gui:Destroy()
             end
         end
@@ -328,7 +328,7 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_DELTA_v30"
+ScreenGui.Name = "TSB_DELTA_v31"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
@@ -387,7 +387,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB_DELTA_v30"
+Title.Text = "TSB_DELTA_v31"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.GothamBold
 Title.TextSize = 13
@@ -643,7 +643,7 @@ do
 -- Compact mobile panel, three pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB_DELTA_v30"
+Title.Text = "TSB_DELTA_v31"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
@@ -778,7 +778,7 @@ LeadToggle.TextSize = 12
 LeadToggle.TextColor3 = Color3.new(1, 1, 1)
 relayout(LeadToggle, TargetScroll, 8, targetListHeight + 174, innerW, 35)
 Instance.new("UICorner", LeadToggle).CornerRadius = UDim.new(0, 6)
-infoLabel(TargetScroll, "Выбери игрока (галочка), затем START. TP повторяется непрерывно; STOP прекращает. Автоатак нет.", targetListHeight + 217, 48)
+infoLabel(TargetScroll, "Выбери игрока и нажми START. Отступ обычно 3.5–4.5 studs, меняется выше. TP непрерывный; STOP останавливает. Дальность удара определяет сервер.", targetListHeight + 217, 58)
 TargetScroll.CanvasSize = UDim2.fromOffset(0, targetListHeight + 282)
 
 -- Feature page can scroll independently (all old buttons remain functional).
@@ -800,11 +800,11 @@ end
 feature(SafeToggle, 8, 8, halfW, 34)
 feature(ResetToggle, rightX, 8, rightW, 34)
 feature(InvisLaunchButton, 8, 50, innerW, 34)
-local InvisStatus = infoLabel(ControlsScroll, "Invis: загрузчик и маленькая кнопка INV для повторного запуска.", 90, 29)
-feature(SpeedToggle, 8, 124, halfW, 34)
-feature(SpeedInput, rightX, 124, rightW, 34)
+local InvisStatus = infoLabel(ControlsScroll, "Invis: кнопка запускает указанный внешний скрипт. INV — повторный запуск.", 90, 52)
+feature(SpeedToggle, 8, 150, halfW, 34)
+feature(SpeedInput, rightX, 150, rightW, 34)
 -- Compact layout: core functions only; every control has an independent row.
-feature(AimToggle, 8, 166, innerW, 36)
+feature(AimToggle, 8, 192, innerW, 36)
 local QuickOptimizeButton = Instance.new("TextButton")
 QuickOptimizeButton.Name = "QuickFPSUltra"
 QuickOptimizeButton.BackgroundColor3 = Color3.fromRGB(22, 131, 98)
@@ -813,16 +813,16 @@ QuickOptimizeButton.Font = Enum.Font.GothamBold
 QuickOptimizeButton.TextSize = 14
 QuickOptimizeButton.BorderSizePixel = 0
 QuickOptimizeButton.Text = "⚡ FPS ULTRA: ON"
-relayout(QuickOptimizeButton, ControlsScroll, 8, 211, innerW, 43)
+relayout(QuickOptimizeButton, ControlsScroll, 8, 237, innerW, 43)
 Instance.new("UICorner", QuickOptimizeButton).CornerRadius = UDim.new(0, 8)
 local FPSStatus = infoLabel(ControlsScroll,
     "Очистка накопленных визуальных частиц, отключение тяжёлых эффектов. Без изменения физики и сетевых пакетов.",
-    268, 66)
+    294, 66)
 FPSStatus.Name = "FPSStatus"
 infoLabel(ControlsScroll,
     "AIM: наведи центр камеры и нажми кружок для фиксации одной цели. Отключается отдельно.",
-    348, 60)
-ControlsScroll.CanvasSize = UDim2.fromOffset(0, 440)
+    374, 60)
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 468)
 
 -- Extras: independent scroll preserves compact panel dimensions.
 local ExtraPage = pages[3]
@@ -1163,9 +1163,9 @@ local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V30"
+local AimRenderName = "TSB_DELTA_AIM_V31"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V30"
+local MoveRenderName = "TSB_DELTA_MOVE_V31"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1810,7 +1810,9 @@ function Positioner.teleport(force)
             else
                 char:PivotTo(targetCF)
             end
-            if force then
+            if force and gap > 8 then
+                -- Prevent carrying large fall velocity over a long-distance jump.
+                -- Don't forcibly freeze the avatar during every nearby attack.
                 root.AssemblyLinearVelocity = Vector3.zero
                 root.AssemblyAngularVelocity = Vector3.zero
             end
@@ -2031,12 +2033,95 @@ local function Message(Title, Text, Time)
     end)
 end
 
+-- AIM CORNERS: four cyan brackets on the selected aim target only.
+-- A separate screen-aligned overlay avoids obscuring avatars with Highlight.FillColor.
+local AimOverlayGui=Instance.new("ScreenGui")
+AimOverlayGui.Name="TSB_DELTA_AIM_OVERLAY"
+AimOverlayGui.ResetOnSpawn=false
+AimOverlayGui.IgnoreGuiInset=true
+AimOverlayGui.DisplayOrder=149
+AimOverlayGui.ZIndexBehavior=Enum.ZIndexBehavior.Global
+AimOverlayGui.Parent=ScreenGui.Parent
+local AimCorners=Instance.new("Frame")
+AimCorners.Name="Corners"
+AimCorners.BackgroundTransparency=1
+AimCorners.BorderSizePixel=0
+AimCorners.Visible=false
+AimCorners.Active=false
+AimCorners.Parent=AimOverlayGui
+local aimSegments={}
+for i=1,8 do
+    local edge=Instance.new("Frame")
+    edge.Name="CornerEdge"..i
+    edge.BorderSizePixel=0
+    edge.BackgroundColor3=Color3.fromRGB(28,207,255)
+    edge.BackgroundTransparency=0
+    edge.ZIndex=6
+    edge.Parent=AimCorners
+    local glow=Instance.new("UIStroke")
+    glow.Color=Color3.fromRGB(38,184,255)
+    glow.Thickness=2.5
+    glow.Transparency=0.45
+    glow.Parent=edge
+    aimSegments[i]=edge
+end
+local function paintAimCorners()
+    if not Active or not CONFIG.AIM_ENABLED or not AimTarget then
+        AimCorners.Visible=false
+        return
+    end
+    local root=getHRP(AimTarget)
+    local cam=workspace.CurrentCamera
+    if not root or not cam or not isAlive(AimTarget) then
+        AimCorners.Visible=false
+        return
+    end
+    local head=root.Parent:FindFirstChild("Head")
+    local upper=head and (head.Position+Vector3.new(0,head.Size.Y*0.7,0))
+        or (root.Position+Vector3.new(0,3,0))
+    local lower=root.Position-Vector3.new(0,3,0)
+    local top, topVisible=cam:WorldToViewportPoint(upper)
+    local bottom, bottomVisible=cam:WorldToViewportPoint(lower)
+    if top.Z<=0 or bottom.Z<=0 or not (topVisible or bottomVisible) then
+        AimCorners.Visible=false
+        return
+    end
+    local vp=cam.ViewportSize
+    local h=math.clamp(math.abs(bottom.Y-top.Y),30,math.min(vp.Y*.85,380))
+    local w=math.clamp(h*0.55,20,math.min(vp.X*.35,220))
+    local x=math.floor((top.X+bottom.X)*0.5-w*.5)
+    local y=math.floor((top.Y+bottom.Y)*0.5-h*.5)
+    if x+w<0 or x>vp.X or y+h<0 or y>vp.Y then
+        AimCorners.Visible=false
+        return
+    end
+    AimCorners.Visible=true
+    AimCorners.Position=UDim2.fromOffset(x,y)
+    AimCorners.Size=UDim2.fromOffset(w,h)
+    local arm=math.floor(math.clamp(math.min(w,h)*0.23,8,22))
+    local thick=2
+    local specs={
+        {0,0,arm,thick}, {0,0,thick,arm},
+        {w-arm,0,arm,thick}, {w-thick,0,thick,arm},
+        {0,h-thick,arm,thick}, {0,h-arm,thick,arm},
+        {w-arm,h-thick,arm,thick}, {w-thick,h-arm,thick,arm},
+    }
+    for i,part in ipairs(aimSegments) do
+        local s=specs[i]
+        part.Position=UDim2.fromOffset(s[1],s[2])
+        part.Size=UDim2.fromOffset(s[3],s[4])
+    end
+end
+local AimCornersRenderName="TSB_DELTA_CORNERS_V31"
+RunService:BindToRenderStep(AimCornersRenderName,Enum.RenderPriority.Camera.Value+12,paintAimCorners)
+
 -- ============================================================
 -- AIM: manual screen-center acquisition; camera + avatar track only that player.
 -- The circle can be dragged without changing the target or toggling AIM.
 -- ============================================================
 local function clearAimTarget()
     AimTarget = nil
+    AimCorners.Visible=false
     AimHud.BackgroundColor3 = Color3.fromRGB(91, 96, 107)
     AimHudStroke.Color = Color3.fromRGB(176, 183, 197)
     AimHud.Text = "◎"
@@ -2167,7 +2252,7 @@ RunService:BindToRenderStep(AimRenderName, Enum.RenderPriority.Camera.Value + 10
 -- START / STOP: zero artificial cooldown; frame-driven tracking.
 -- Moving local CFrame cannot extend melee range or override the server.
 -- ============================================================
-local FollowRenderName = "TSB_DELTA_FOLLOW_V30"
+local FollowRenderName = "TSB_DELTA_FOLLOW_V31"
 local FollowAttackConnection = nil
 local FollowAnimationConnection = nil
 local FollowAnimCharacter = nil
@@ -2175,7 +2260,6 @@ local followLastDiagnostic = -math.huge
 local followLastError = ""
 local followLastSample = nil
 local followLastSampleTime = 0
-local followInputRequestedAt = 0
 local function runFollowTick(force)
     if not Active or not BackstabActive then return end
     if not SelectedTarget or SelectedTarget.Parent ~= Players then
@@ -2257,14 +2341,13 @@ StartBackstab = function()
     TPDiag.corrections,TPDiag.applied,TPDiag.attempts=0,0,0
     followLastSample=nil
     followLastDiagnostic=-math.huge
-    followInputRequestedAt=0
     local ok,moved,reason=pcall(Positioner.teleport,true)
     if not ok then moved,reason=false,tostring(moved) end
     StatusLabel.Text=moved and "TP запущен: слежение без задержки" or "TP: "..tostring(reason)
     StatusLabel.TextColor3=moved and Color3.fromRGB(109,244,169) or Color3.fromRGB(255,182,105)
 
-    -- Heartbeat uses latest physical target location, render callback uses
-    -- latest visible target pose. Neither introduces a fixed 45 Hz cap.
+    -- Two engine-native update phases, no task.wait or custom cooldown.
+    -- Physics/network replication can still introduce latency or position correction.
     PositionConnection=RunService.Heartbeat:Connect(function()
         if BackstabActive then pcall(runFollowTick, false) end
     end)
@@ -2276,11 +2359,7 @@ StartBackstab = function()
         -- Immediate extra attempt when clicking the attack mouse button.
         -- On mobile, frame tracking already covers touch/UI attack buttons.
         if input.UserInputType==Enum.UserInputType.MouseButton1 then
-            local t=os.clock()
-            if t-followInputRequestedAt>0.025 then
-                followInputRequestedAt=t
-                pcall(runFollowTick,true)
-            end
+            pcall(runFollowTick,true)
         end
     end)
     refreshAttackHooks()
@@ -2558,8 +2637,11 @@ TpOnceButton.Activated:Connect(function()
         StatusLabel.Text = "Select a player first"
         return
     end
-    local ok = Positioner.teleport(true)
-    StatusLabel.Text = ok and ("TP attempted: " .. SelectedTarget.Name) or "TP failed: unavailable"
+    local callOK, moved, message = pcall(Positioner.teleport, true)
+    StatusLabel.Text = callOK and (moved and "TP выполнен локально" or ("TP: "..tostring(message)))
+        or ("Ошибка TP: "..tostring(moved):sub(1,90))
+    StatusLabel.TextColor3 = callOK and moved and Color3.fromRGB(109,244,169)
+        or Color3.fromRGB(255,182,105)
 end)
 
 -- 20 Hz local speed assistance; writes may be rejected / corrected by game.
@@ -2596,118 +2678,49 @@ SafeToggle.Activated:Connect(function()
     paintToggle(SafeToggle, "SAVE ZONA", CONFIG.SAFE_ZONE)
 end)
 
--- External Invis is loaded ONLY on explicit button tap. The dock is our
--- launch/retry UI, never a fake "Invisible: ON" indicator. The external
--- script decides whether it supplies its own button and its own invis state.
-local INVIS_SOURCES = {
-    "https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua",
-    "https://raw.githubusercontent.com/Airbornite/tsb-scripts/main/InvisScript_loader.lua",
-    "https://cdn.jsdelivr.net/gh/Airbornite/tsb-scripts@main/InvisScript_loader.lua",
-}
+-- INVIS: exactly the supplied loader command, no proxy, mirror or replacement.
+-- Two native launch controls (menu and draggable INV) call the same function.
+-- The external script itself owns the Invis behavior and any GUI it creates.
 local invisLoading=false
-local invisLaunchCount=0
-local lastInvisLaunch=-math.huge
-local function paintInvis(label, detail, state)
-    if closing or not Active then return end
+local function paintInvis(label,detail,errorState)
+    if not Active or closing then return end
     InvisLaunchButton.Text=label
     InvisStatus.Text=detail
-    if state=="loading" then
-        InvisLaunchButton.BackgroundColor3=Color3.fromRGB(51,75,100)
-        InvisDock.Text="..."
-        InvisDock.BackgroundColor3=Color3.fromRGB(55,76,110)
-    elseif state=="error" then
-        InvisLaunchButton.BackgroundColor3=Color3.fromRGB(138,51,64)
-        InvisDock.Text="!"
-        InvisDock.BackgroundColor3=Color3.fromRGB(138,51,64)
-    else
-        InvisLaunchButton.BackgroundColor3=Color3.fromRGB(19,128,104)
-        InvisDock.Text="INV"
-        InvisDock.BackgroundColor3=Color3.fromRGB(19,128,104)
-    end
+    InvisLaunchButton.BackgroundColor3=errorState
+        and Color3.fromRGB(135,44,61) or Color3.fromRGB(22,111,136)
+    InvisDock.Text=errorState and "!" or "INV"
+    InvisDock.BackgroundColor3=errorState
+        and Color3.fromRGB(135,44,61) or Color3.fromRGB(24,104,120)
 end
-local function getRemoteSource(url)
-    local errors={}
-    do
-        local ok,out=pcall(function() return game:HttpGet(url) end)
-        if ok and type(out)=="string" and #out>0 and not out:lower():match("^%s*<!?html") then
-            return out
-        end
-        errors[#errors+1]=tostring(out):sub(1,90)
-    end
-    local requestFunc=request or http_request or (syn and syn.request)
-    if type(requestFunc)=="function" then
-        local ok,res=pcall(requestFunc,{Url=url,Method="GET"})
-        local body=ok and type(res)=="table" and (res.Body or res.body) or nil
-        local status=ok and type(res)=="table" and tonumber(res.StatusCode or res.Status) or nil
-        if type(body)=="string" and #body>0 and (not status or status>=200 and status<300)
-            and not body:lower():match("^%s*<!?html") then
-            return body
-        end
-        errors[#errors+1]= "HTTP "..tostring(status or res):sub(1,55)
-    end
-    return nil, table.concat(errors,"; "):sub(1,105)
-end
-launchInvis = function()
-    if not Active or closing then return end
-    InvisDock.Visible=true
-    if invisLoading then return end
-    local t=os.clock()
-    if t-lastInvisLaunch<1 then
-        InvisStatus.Text="Повтори через секунду"
-        return
-    end
-    lastInvisLaunch=t
+launchInvis=function()
+    if not Active or closing or invisLoading then return end
+    InvisDock.Visible=true -- always provide a working launch/retry control
     if type(loadstring)~="function" then
-        paintInvis("▶ ПОВТОРИТЬ INVIS","В Delta отсутствует loadstring.","error")
+        paintInvis("▶ ЗАПУСТИТЬ INVIS", "Ошибка: Delta не предоставляет loadstring.",true)
         return
     end
     invisLoading=true
-    paintInvis("INVIS: ЗАГРУЗКА...","Проверяю источник кода...","loading")
+    paintInvis("INVIS: ЗАПУСК…","Выполняю именно указанную команду…",false)
     task.spawn(function()
-        local errors={}
-        local compiled=nil
-        for _,url in ipairs(INVIS_SOURCES) do
-            if not Active or closing then invisLoading=false;return end
-            local source,err=getRemoteSource(url)
-            if source then
-                local ok,code=pcall(loadstring,source)
-                if ok and type(code)=="function" then
-                    compiled=code
-                    break
-                end
-                errors[#errors+1]="Компиляция: "..tostring(code):sub(1,55)
-            else
-                errors[#errors+1]=tostring(err)
-            end
-        end
-        if not compiled then
-            invisLoading=false
-            paintInvis("▶ ПОВТОРИТЬ INVIS","Источник недоступен: "..table.concat(errors," | "):sub(1,120),"error")
-            return
-        end
-        invisLaunchCount=invisLaunchCount+1
-        local attempt=invisLaunchCount
-        task.delay(12,function()
-            if Active and not closing and invisLoading and invisLaunchCount==attempt then
-                invisLoading=false
-                paintInvis("▶ INVIS: ПРОВЕРИТЬ", "Загрузчик не завершился за 12 сек. Проверь его GUI или нажми INV повторно.","error")
-            end
+        -- No edits to the downloaded script. The user requested literal execution.
+        local ok,err=xpcall(function()
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/Airbornite/tsb-scripts/refs/heads/main/InvisScript_loader.lua"))()
+        end,function(message)
+            return tostring(message)
         end)
-        local ok,err=xpcall(compiled,function(e) return tostring(e) end)
-        if invisLaunchCount~=attempt then return end
-        invisLoading=false
         if not Active or closing then return end
+        invisLoading=false
         if ok then
-            paintInvis("▶ INVIS: ЗАПУЩЕН","Внешний код запущен. Если его кнопка не появилась, нажми INV для повтора.","ok")
-            -- Don't cover the third-party GUI with the large panel.
-            MainFrame.Visible=false
-            DockButton.BackgroundColor3=Color3.fromRGB(35,117,102)
+            paintInvis("▶ ЗАПУСТИТЬ INVIS",
+                "Команда выполнена. Интерфейс и работа INVIS зависят от внешнего скрипта.",false)
         else
-            paintInvis("▶ ПОВТОРИТЬ INVIS","Ошибка внешнего скрипта: "..tostring(err):sub(1,105),"error")
+            local reason=tostring(err):gsub("\n"," ")
+            paintInvis("▶ ПОВТОРИТЬ INVIS",("Ошибка загрузчика: "..reason):sub(1,160),true)
+            warn("[TSB_DELTA_v31/INVIS] "..reason)
         end
     end)
 end
-InvisLaunchButton.Activated:Connect(function() launchInvis() end)
+InvisLaunchButton.Activated:Connect(launchInvis)
 
 ResetToggle.Activated:Connect(function()
     CONFIG.AUTO_RESET = not CONFIG.AUTO_RESET
@@ -2730,6 +2743,8 @@ Shutdown = function()
     safe(Visual.stop)
     safe(function() setAimEnabled(false) end)
     safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
+    safe(function() RunService:UnbindFromRenderStep(AimCornersRenderName) end)
+    safe(function() AimOverlayGui:Destroy() end)
     safe(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
     safe(function() CONFIG.SPEED_ENABLED = false; releaseSpeed() end)
     safe(function() if SpeedLoopConnection then SpeedLoopConnection:Disconnect() end end)
@@ -2753,12 +2768,12 @@ Shutdown = function()
     for _, conn in ipairs(CleanupConnections) do
         if conn then safe(function() conn:Disconnect() end) end
     end
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V30_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V30_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V30_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V31_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
