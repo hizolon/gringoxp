@@ -1,4 +1,4 @@
--- TSB DELTA v22 | restored complete feature set, mobile interface
+-- TSB DELTA v23 | restored complete feature set, mobile interface
 -- Manual abilities only; persistent target chasing, optional external menu.
 -- No server-side guarantees: simulated skill inputs may be rejected.
 -- FPS optimization is reversible and disabled by default; no ESP/outline.
@@ -45,12 +45,6 @@ local CONFIG = {
     -- These are attempts at local movement; game/server restrictions still apply.
     SPEED_ACCELERATION = 0.92,
     SPEED_UPDATE_INTERVAL = 0.016,
-    TRASH_PICKUP_WAIT = 1.1,
-    TRASH_THROW_WAIT = 0.5,
-    TRASH_TARGET_DISTANCE = 8,
-    TRASH_SCAN_INTERVAL = 12.0,
-    TRASH_RETRY_WAIT = 1.4,
-    TRASH_RETURN_PAUSE = 0.2,
     AIM_ENABLED = false,
     -- Approximations for Garou's normal (non-awakened) abilities.
     -- Client-side timers cannot observe authoritative server cooldowns.
@@ -107,7 +101,7 @@ do
                 or lower:find("projectile",1,true) or lower:find("effect",1,true)
                 or lower:find("attack",1,true) or lower:find("weapon",1,true)
                 or lower:find("dummy",1,true) or lower:find("npc",1,true)
-                or lower:find("trash",1,true) then return false end
+                then return false end
             current = current.Parent
         end
         return true
@@ -251,7 +245,7 @@ pcall(function()
     if type(getgenv) == "function" then sharedEnvironment = getgenv() end
 end)
 if sharedEnvironment then
-    for _, key in ipairs({"__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN", "__NEBULA_TSB_EXIT"}) do
+    for _, key in ipairs({"__TSB_DELTA_V23_SHUTDOWN", "__TSB_DELTA_V22_SHUTDOWN", "__TSB_DELTA_V21_SHUTDOWN", "__TSB_DELTA_V20_SHUTDOWN", "__TSB_DELTA_V19_SHUTDOWN"}) do
         local old = rawget(sharedEnvironment, key)
         if type(old) == "function" then pcall(old) end
     end
@@ -266,7 +260,7 @@ end
 for _, container in ipairs(parentsToClean) do
     pcall(function()
         for _, gui in ipairs(container:GetChildren()) do
-            if gui:IsA("ScreenGui") and (gui.Name == "NebulaTSBv16" or gui.Name == "NebulaTSBv17" or gui.Name == "NebulaTSBv18" or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22") then
+            if gui:IsA("ScreenGui") and (gui.Name:match("^%a+TSBv%d+$") or gui.Name == "TSB_Delta_Clean" or gui.Name == "TSB_Delta_V20" or gui.Name == "TSB_Delta_V21" or gui.Name == "TSB_Delta_V22" or gui.Name == "TSB_Delta_V23") then
                 gui:Destroy()
             end
         end
@@ -274,21 +268,21 @@ for _, container in ipairs(parentsToClean) do
 end
 
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "TSB_Delta_V22"
+ScreenGui.Name = "TSB_Delta_V23"
 ScreenGui.ResetOnSpawn = false
 ScreenGui.DisplayOrder = 150
 local guiOK = pcall(function() ScreenGui.Parent = CoreGui end)
 if not guiOK then
     local alternate = Player:FindFirstChildOfClass("PlayerGui") or Player:WaitForChild("PlayerGui", 7)
-    if not alternate then error("NEBULA: no UI parent") end
+    if not alternate then error("TSB: no UI parent") end
     ScreenGui.Parent = alternate
 end
 ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 
 local MainFrame = Instance.new("Frame")
 local viewport = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(480, 680)
-local PANEL_W = math.max(245, math.min(324, math.floor(viewport.X - 18)))
-local PANEL_H = math.max(285, math.min(430, math.floor(viewport.Y - 30)))
+local PANEL_W = math.max(238, math.min(356, math.floor(viewport.X - 20)))
+local PANEL_H = math.max(278, math.min(455, math.floor(viewport.Y - 26)))
 MainFrame.Size = UDim2.fromOffset(PANEL_W, PANEL_H)
 MainFrame.Position = UDim2.new(0.5, -PANEL_W / 2, 0.5, -PANEL_H / 2)
 MainFrame.BackgroundColor3 = Color3.fromRGB(19, 22, 30)
@@ -298,7 +292,7 @@ MainFrame.Draggable = false
 MainFrame.Parent = ScreenGui
 
 local MainFrameCorner = Instance.new("UICorner")
-MainFrameCorner.CornerRadius = UDim.new(0, 9)
+MainFrameCorner.CornerRadius = UDim.new(0, 12)
 MainFrameCorner.Parent = MainFrame
 
 local MainFrameStroke = Instance.new("UIStroke")
@@ -320,7 +314,7 @@ TitleBarCorner.Parent = TitleBar
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(1, -77, 1, 0)
 Title.BackgroundTransparency = 1
-Title.Text = "TSB DELTA · v22"
+Title.Text = "TSB DELTA · v23"
 Title.TextColor3 = Color3.fromRGB(134, 246, 255)
 Title.Font = Enum.Font.SourceSansBold
 Title.TextSize = 14
@@ -440,7 +434,7 @@ PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
 PlayerScrollFrame.BackgroundTransparency = 1
 PlayerScrollFrame.BorderSizePixel = 0
 PlayerScrollFrame.ScrollBarThickness = 4
-PlayerScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(255, 80, 80)
+PlayerScrollFrame.ScrollBarImageColor3 = Color3.fromRGB(67, 191, 212)
 PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 PlayerScrollFrame.Parent = SelectionFrame
 
@@ -567,31 +561,6 @@ RandomTPButton.Text = "RANDOM TP"
 RandomTPButton.TextColor3 = Color3.new(1, 1, 1)
 RandomTPButton.BackgroundColor3 = Color3.fromRGB(22, 93, 148)
 
-local TrashAutoButton = makeToggle("TRASH AUTO", 7, 94)
-TrashAutoButton.Position = UDim2.fromOffset(7, 373)
-TrashAutoButton.Text = "TRASH AUTO"
-TrashAutoButton.TextColor3 = Color3.new(1, 1, 1)
-TrashAutoButton.BackgroundColor3 = Color3.fromRGB(95, 66, 140)
-
-local TrashInfo = Instance.new("TextLabel")
-TrashInfo.Position = UDim2.fromOffset(7, 403)
-TrashInfo.Size = UDim2.fromOffset(196, 44)
-TrashInfo.BackgroundTransparency = 1
-TrashInfo.TextWrapped = true
-TrashInfo.TextYAlignment = Enum.TextYAlignment.Top
-TrashInfo.TextXAlignment = Enum.TextXAlignment.Left
-TrashInfo.Font = Enum.Font.SourceSans
-TrashInfo.TextSize = 10
-TrashInfo.TextColor3 = Color3.fromRGB(160, 185, 212)
-TrashInfo.Text = "Мусор: обычное взятие и бросок. Ускорение доступно при переноске."
-TrashInfo.Parent = MainFrame
-
--- V16 ROOT CAUSE: missing declarations below crashed relayout(nil, ...).
--- Create all controls before they are moved into tab pages.
-local TrashReturnButton = makeToggle("TRASH RETURN", 7, 196)
-TrashReturnButton.Text = "PICKUP + RETURN"
-TrashReturnButton.BackgroundColor3 = Color3.fromRGB(68, 70, 135)
-TrashReturnButton.TextColor3 = Color3.new(1, 1, 1)
 local AimToggle = makeToggle("AIM LOCK", 7, 196)
 paintToggle(AimToggle, "AIM LOCK", CONFIG.AIM_ENABLED)
 local AutoStartButton = makeToggle("RANDOM START", 7, 94)
@@ -616,15 +585,16 @@ Instance.new("UICorner", AutoStatus).CornerRadius = UDim.new(0, 5)
 local Refs = {}
 do
 -- ============================================================
--- NEBULA v16 | Compact mobile panel, four pages and draggable title
+-- Compact mobile panel, four pages and draggable title
 -- ============================================================
 MainFrame.ClipsDescendants = true
-Title.Text = "TSB DELTA · v22"
+Title.Text = "TSB DELTA · v23"
 StatusLabel.Parent = MainFrame
 StatusLabel.Position = UDim2.fromOffset(10, 38)
 StatusLabel.Size = UDim2.new(1, -20, 0, 21)
 StatusLabel.TextSize = 12
 StatusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+StatusLabel.TextColor3 = Color3.fromRGB(224, 242, 249)
 
 local TabsBar = Instance.new("Frame")
 TabsBar.Name = "Tabs"
@@ -717,7 +687,7 @@ TargetScroll.Size = UDim2.fromScale(1, 1)
 TargetScroll.ScrollBarThickness = 3
 TargetScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 TargetScroll.Parent = TargetPage
-local targetListHeight = math.max(112, PAGE_H - 175)
+local targetListHeight = math.max(119, PAGE_H - 174)
 relayout(SelectionFrame, TargetScroll, 8, 8, innerW, targetListHeight)
 PlayerScrollFrame.Size = UDim2.new(1, -8, 1, -8)
 relayout(StartButton, TargetScroll, 8, targetListHeight + 16, halfW, 35)
@@ -804,8 +774,8 @@ ControlsScroll.BackgroundTransparency = 1
 ControlsScroll.BorderSizePixel = 0
 ControlsScroll.Position = UDim2.fromOffset(3, 4)
 ControlsScroll.Size = UDim2.new(1, -6, 1, -8)
-ControlsScroll.CanvasSize = UDim2.fromOffset(0, 333)
-ControlsScroll.ScrollBarThickness = 4
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 282)
+ControlsScroll.ScrollBarThickness = 3
 ControlsScroll.ScrollingDirection = Enum.ScrollingDirection.Y
 ControlsScroll.ScrollBarImageColor3 = Color3.fromRGB(24, 211, 240)
 ControlsScroll.Parent = pages[3]
@@ -818,14 +788,12 @@ feature(ResetToggle, rightX, 8, rightW, 34)
 feature(InvisToggle, 8, 50, innerW, 34)
 feature(SpeedToggle, 8, 92, halfW, 34)
 feature(SpeedInput, rightX, 92, rightW, 34)
-feature(TrashAutoButton, 8, 134, innerW, 34)
-feature(TrashReturnButton, 8, 176, innerW, 34)
-TrashReturnButton.Text = "ВЗЯТЬ МУСОР И ВЕРНУТЬСЯ"
-feature(AimToggle, 8, 218, innerW, 34)
-TrashInfo.Parent = ControlsScroll
-TrashInfo.Position = UDim2.fromOffset(8, 265)
-TrashInfo.Size = UDim2.fromOffset(innerW, 58)
-TrashInfo.TextSize = 11
+-- Compact layout: core functions only; every control has an independent row.
+feature(AimToggle, 8, 134, innerW, 36)
+infoLabel(ControlsScroll,
+    "AIM: выбери направление камеры, нажми кружок для фиксации цели. Скорость действует отдельно.",
+    181, 72)
+ControlsScroll.CanvasSize = UDim2.fromOffset(0, 282)
 
 -- Extras: independent scroll preserves compact panel dimensions.
 local ExtraPage = pages[4]
@@ -881,9 +849,9 @@ HKGButton.TextColor3 = Color3.new(1, 1, 1)
 HKGButton.Font = Enum.Font.SourceSansBold
 HKGButton.TextSize = 15
 HKGButton.Text = "▶ ЗАПУСТИТЬ HKG VOID"
-relayout(HKGButton, ExtraScroll, 8, 311, innerW, 43)
+relayout(HKGButton, ExtraScroll, 8, 295, innerW, 39)
 Instance.new("UICorner", HKGButton).CornerRadius = UDim.new(0, 7)
-local HKGStatus = infoLabel(ExtraScroll, "Дополнительное меню запускается отдельно. Внешний код не проверен — запуск на твой выбор.", 364, 72)
+local HKGStatus = infoLabel(ExtraScroll, "Дополнительный код запускается только по нажатию. Источник не проверен.", 340, 76)
 
 -- Supplied full Infinite Yield is embedded at the end of this file, not fetched.
 local IYLaunchButton = Instance.new("TextButton")
@@ -893,34 +861,14 @@ IYLaunchButton.BorderSizePixel = 0
 IYLaunchButton.Font = Enum.Font.SourceSansBold
 IYLaunchButton.TextSize = 13
 IYLaunchButton.TextColor3 = Color3.new(1, 1, 1)
-IYLaunchButton.Text = "▶ INVIS+ / INFINITE YIELD"
-relayout(IYLaunchButton, ExtraScroll, 8, 446, innerW, 36)
+IYLaunchButton.Text = "▶ ОТКРЫТЬ INVIS+ / КОМАНДЫ"
+relayout(IYLaunchButton, ExtraScroll, 8, 429, innerW, 39)
 Instance.new("UICorner", IYLaunchButton).CornerRadius = UDim.new(0, 6)
-local IYSmallButton = Instance.new("TextButton")
-IYSmallButton.BackgroundColor3 = Color3.fromRGB(41, 60, 80)
-IYSmallButton.TextColor3 = Color3.new(1, 1, 1)
-IYSmallButton.BorderSizePixel = 0
-IYSmallButton.Font = Enum.Font.SourceSansBold
-IYSmallButton.TextSize = 12
-IYSmallButton.Text = "− РАЗМЕР"
-relayout(IYSmallButton, ExtraScroll, 8, 493, halfW, 32)
-Instance.new("UICorner", IYSmallButton).CornerRadius = UDim.new(0, 6)
-local IYLargeButton = Instance.new("TextButton")
-IYLargeButton.BackgroundColor3 = Color3.fromRGB(41, 60, 80)
-IYLargeButton.TextColor3 = Color3.new(1, 1, 1)
-IYLargeButton.BorderSizePixel = 0
-IYLargeButton.Font = Enum.Font.SourceSansBold
-IYLargeButton.TextSize = 12
-IYLargeButton.Text = "+ РАЗМЕР"
-relayout(IYLargeButton, ExtraScroll, rightX, 493, rightW, 32)
-Instance.new("UICorner", IYLargeButton).CornerRadius = UDim.new(0, 6)
 local IYStatus = infoLabel(ExtraScroll,
-    "Кнопка INV перетаскивается пальцем. Короткое касание: невидимость IY. Пакет из вложения встроен; запускается только вручную.",
-    535, 72)
-ExtraScroll.CanvasSize = UDim2.fromOffset(0, 626)
+    "Встроенный модуль запускается вручную в этой вкладке. Плавающих кнопок справа нет.",
+    476, 58)
+ExtraScroll.CanvasSize = UDim2.fromOffset(0, 551)
 Refs.IYLaunchButton = IYLaunchButton
-Refs.IYSmallButton = IYSmallButton
-Refs.IYLargeButton = IYLargeButton
 Refs.IYStatus = IYStatus
 
 
@@ -1049,20 +997,10 @@ local SpeedHumanoid = nil
 local CurrentSpeedWritten = nil
 local SpeedLoopConnection = nil
 local Active = true
-local TrashBusy = false
-local TrashAutoEnabled = false
-local TrashToken = 0
-local TrashPhase = "idle"
 local AimTarget = nil
-local AimRenderName = "TSB_DELTA_AIM_V22"
-local TrashIndex = {}
-local TrashBlacklist = {}
-local TrashIndexReady = false
-local TrashIndexConnection = nil
-local LastTrashScanAt = 0
-local CachedTrash = nil
+local AimRenderName = "TSB_DELTA_AIM_V23"
 local LastRealSpeed = 0
-local MoveRenderName = "TSB_DELTA_MOVE_V22"
+local MoveRenderName = "TSB_DELTA_MOVE_V23"
 
 -- AIM joystick-style draggable button. Works with touch and mouse.
 -- Ignore the click that follows a drag, so moving the button never drops the target.
@@ -1202,7 +1140,7 @@ local function forceHideCharacter(char)
 
     if not HiddenFolder or not HiddenFolder.Parent then
         HiddenFolder = Instance.new("Folder")
-        HiddenFolder.Name = "NebulaHiddenVisuals"
+        HiddenFolder.Name = "TSBHiddenVisuals"
         HiddenFolder.Parent = CoreGui
     end
 
@@ -1347,7 +1285,7 @@ local function createSafeZone(mode)
     local destination = Vector3.new(hrp.Position.X, y, hrp.Position.Z)
 
     local platform = Instance.new("Part")
-    platform.Name = "NebulaLocalSafeZone"
+    platform.Name = "TSBLocalSafeZone"
     platform.Size = Vector3.new(28, 2, 28)
     platform.Anchored = true
     platform.CanCollide = true
@@ -1419,7 +1357,7 @@ local StopBackstab
 -- SPEED: independent of the camera and START target facing.
 -- Only the player's own control direction drives it. Uses horizontal velocity
 -- (no continuous PivotTo) to avoid shaking camera while walking or attacking.
--- TSB server can override character controls/abilities/trash restrictions.
+-- TSB server can override character controls and abilities.
 -- ============================================================
 local function speedHumanoid()
     local c = Player.Character
@@ -1684,7 +1622,6 @@ function Positioner.teleport(force)
     if SafeTriggered or ResetInProgress then
         return false, "активна безопасная зона / сброс"
     end
-    if TrashBusy then return false, "ожидание остановки мусорки" end
     local char, root = Player.Character, getHRP(Player)
     local targetRoot = getHRP(SelectedTarget)
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -1737,7 +1674,7 @@ function Positioner.teleport(force)
 end
 
 local function teleportToOpponent(opponent, distance, force)
-    if not Active or TrashBusy or Evading or SafeTriggered or ResetInProgress then return false end
+    if not Active or Evading or SafeTriggered or ResetInProgress then return false end
     local char, root, targetRoot = Player.Character, getHRP(Player), getHRP(opponent)
     local hum = speedHumanoid()
     if not char or not root or not targetRoot or not isAlive(opponent)
@@ -1751,7 +1688,7 @@ local function teleportToOpponent(opponent, distance, force)
     return pcall(function()
         char:PivotTo(dst)
         -- Only initial TP resets momentum. Repeated follow must not fight
-        -- jumps, the movement controller, or trash carrying.
+        -- jumps or the normal movement controller.
         if force then
             root.AssemblyLinearVelocity = Vector3.zero
             root.AssemblyAngularVelocity = Vector3.zero
@@ -1808,12 +1745,22 @@ local function RefreshPlayerList()
         return a.DisplayName:lower() < b.DisplayName:lower()
     end)
     local y = 4
+    -- Each row reserves a fixed column for the avatar; names never render behind it.
+    local rowWidth = innerW - 17
+    local avatarSize = 26
+    local avatarX = rowWidth - avatarSize - 9
+    local nameX = 33
+    local usernameRight = avatarX - 9
+    local available = math.max(95, usernameRight - nameX)
+    local displayW = math.floor(available * 0.44)
+    local usernameX = nameX + displayW + 8
+    local usernameW = math.max(39, usernameRight - usernameX)
     for _, opponent in ipairs(all) do
         if opponent ~= Player then
             local entry = Instance.new("TextButton")
             entry.Name = "User_" .. tostring(opponent.UserId)
             entry.Text = ""
-            entry.Size = UDim2.new(1, -9, 0, 49)
+            entry.Size = UDim2.new(1, -9, 0, 44)
             entry.Position = UDim2.fromOffset(3, y)
             entry.BorderSizePixel = 0
             entry.AutoButtonColor = true
@@ -1824,12 +1771,12 @@ local function RefreshPlayerList()
 
             local mark = Instance.new("TextLabel")
             mark.Name = "SelectedMark"
-            mark.Size = UDim2.fromOffset(23, 23)
-            mark.Position = UDim2.new(0, 6, 0.5, -11)
+            mark.Size = UDim2.fromOffset(19, 19)
+            mark.Position = UDim2.new(0, 7, 0.5, -10)
             mark.BackgroundColor3 = Color3.fromRGB(21, 29, 43)
             mark.Text = SelectedTarget == opponent and "✓" or ""
             mark.TextColor3 = Color3.fromRGB(71, 246, 170)
-            mark.TextSize = 18
+            mark.TextSize = 15
             mark.Font = Enum.Font.SourceSansBold
             mark.ZIndex = 2
             mark.Parent = entry
@@ -1839,8 +1786,8 @@ local function RefreshPlayerList()
             -- Do not embed, cache or show any personal/account identifiers elsewhere.
             local display = Instance.new("TextLabel")
             display.Name = "DisplayName"
-            display.Size = UDim2.new(0.42, -25, 0, 37)
-            display.Position = UDim2.new(0, 34, 0.5, -19)
+            display.Size = UDim2.fromOffset(displayW, 34)
+            display.Position = UDim2.new(0, nameX, 0.5, -17)
             display.BackgroundTransparency = 1
             display.Text = opponent.DisplayName
             display.Font = Enum.Font.SourceSansBold
@@ -1853,8 +1800,8 @@ local function RefreshPlayerList()
 
             local username = Instance.new("TextLabel")
             username.Name = "Username"
-            username.Size = UDim2.new(0.58, -48, 0, 37)
-            username.Position = UDim2.new(0.42, 9, 0.5, -19)
+            username.Size = UDim2.fromOffset(usernameW, 34)
+            username.Position = UDim2.new(0, usernameX, 0.5, -17)
             username.BackgroundTransparency = 1
             username.Text = "@" .. opponent.Name
             username.Font = Enum.Font.SourceSans
@@ -1867,8 +1814,8 @@ local function RefreshPlayerList()
 
             local avatar = Instance.new("ImageLabel")
             avatar.Name = "Avatar"
-            avatar.Size = UDim2.fromOffset(37, 37)
-            avatar.Position = UDim2.new(1, -41, 0.5, -18)
+            avatar.Size = UDim2.fromOffset(avatarSize, avatarSize)
+            avatar.Position = UDim2.new(0, avatarX, 0.5, -avatarSize / 2)
             avatar.BackgroundColor3 = Color3.fromRGB(27, 63, 83)
             avatar.BorderSizePixel = 0
             avatar.ScaleType = Enum.ScaleType.Crop
@@ -1909,7 +1856,7 @@ local function RefreshPlayerList()
                 StatusLabel.TextColor3 = Color3.fromRGB(142, 242, 191)
             end)
             PlayerButtons[opponent.UserId] = {entry = entry, mark = mark}
-            y = y + 54
+            y = y + 49
         end
     end
     PlayerScrollFrame.CanvasSize = UDim2.new(0, 0, 0, y + 4)
@@ -1925,348 +1872,6 @@ local function Message(Title, Text, Time)
             Text = Text,
             Duration = Time or 5
         })
-    end)
-end
-
--- ============================================================
--- TRASH v14: indexed candidates, verify pickup, cancelable continuous mode
--- ============================================================
-local function trashStatus(s)
-    if not Active or not TrashInfo.Parent then return end
-    TrashInfo.Text = "TRASH: " .. tostring(s)
-end
-
-local function isTrashName(s)
-    local low = string.lower(tostring(s or ""))
-    return low:find("trash", 1, true) ~= nil
-        or low:find("garbage", 1, true) ~= nil
-        or low:find("dustbin", 1, true) ~= nil
-end
-
-local function trashRoot(item)
-    if not item or not item.Parent then return nil end
-    if item:IsA("BasePart") then return item end
-    if item:IsA("Model") then
-        return item.PrimaryPart or item:FindFirstChildWhichIsA("BasePart", true)
-    end
-    return nil
-end
-
-local function hasForeignHumanoid(inst)
-    local cursor = inst
-    while cursor and cursor ~= workspace do
-        if cursor:IsA("Model") and cursor:FindFirstChildOfClass("Humanoid") then
-            return true
-        end
-        cursor = cursor.Parent
-    end
-    return false
-end
-
-local function indexTrash(item)
-    if (item:IsA("Model") or item:IsA("BasePart"))
-       and isTrashName(item.Name) and not hasForeignHumanoid(item) then
-        local root = trashRoot(item)
-        if root then TrashIndex[item] = true end
-    end
-end
-
-task.spawn(function()
-    local all = workspace:GetDescendants()
-    for i, item in ipairs(all) do
-        if not Active then return end
-        indexTrash(item)
-        if i % 220 == 0 then task.wait() end
-    end
-    TrashIndexReady = true
-end)
-TrashIndexConnection = workspace.DescendantAdded:Connect(function(item)
-    if not Active then return end
-    if isTrashName(item.Name) then task.defer(indexTrash, item) end
-end)
-
-local function findTrash()
-    local me = getHRP(Player)
-    if not me then return nil end
-    local now = os.clock()
-    local best, bestDistance = nil, math.huge
-    for item in pairs(TrashIndex) do
-        local root = trashRoot(item)
-        if not root or not root:IsDescendantOf(workspace) or hasForeignHumanoid(item) then
-            TrashIndex[item] = nil
-        elseif (TrashBlacklist[item] or 0) <= now then
-            -- Anchored map props may become pickup props; do not exclude solely by anchored state.
-            local distance = (root.Position - me.Position).Magnitude
-            if distance < bestDistance and distance < 1600 then
-                best, bestDistance = item, distance
-            end
-        end
-    end
-    -- The map can swap a can's Instance after pickup; rescan at most once
-    -- every configured interval, and in small batches to avoid FPS spikes.
-    if not best and now - LastTrashScanAt > CONFIG.TRASH_SCAN_INTERVAL then
-        LastTrashScanAt = now
-        task.spawn(function()
-            for i, descendant in ipairs(workspace:GetDescendants()) do
-                if not Active then return end
-                if i % 260 == 0 then task.wait() end
-                indexTrash(descendant)
-            end
-        end)
-    end
-    return best
-end
-
-local function sendM1()
-    local character = Player.Character
-    if character then
-        local tool = character:FindFirstChildOfClass("Tool")
-        if tool and pcall(function() tool:Activate() end) then return true end
-    end
-    local camera = workspace.CurrentCamera
-    local view = camera and camera.ViewportSize or Vector2.new(1280, 720)
-    local x, y = math.floor(view.X * 0.90), math.floor(view.Y * 0.43)
-    local pg = Player:FindFirstChildOfClass("PlayerGui")
-    if pg then
-        local nearest, score = nil, math.huge
-        for _, gui in ipairs(pg:GetDescendants()) do
-            if gui:IsA("GuiButton") and gui.Visible and gui.AbsoluteSize.X > 24 then
-                local center = gui.AbsolutePosition + gui.AbsoluteSize / 2
-                if center.X > view.X * 0.71 and center.Y > view.Y * 0.27
-                    and center.Y < view.Y * 0.62 then
-                    local distance = (center - Vector2.new(x, y)).Magnitude
-                    if distance < score then nearest, score = center, distance end
-                end
-            end
-        end
-        if nearest and score < view.Y * 0.17 then
-            x, y = math.floor(nearest.X), math.floor(nearest.Y)
-        end
-    end
-    local ok = pcall(function()
-        VirtualInputManager:SendTouchEvent(7, 0, x, y)
-        task.wait(0.07)
-        VirtualInputManager:SendTouchEvent(7, 2, x, y)
-    end)
-    if ok then return true end
-    ok = pcall(function()
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 0)
-        task.wait(0.07)
-        VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    end)
-    if ok then return true end
-    local fn = rawget(_G, "mouse1click")
-    if type(fn) == "function" then return pcall(fn) end
-    return false
-end
-
-local function trashCarried(item)
-    local char = Player.Character
-    if not char then return false end
-    -- Some games replace the map prop with another equipped instance.
-    for _, obj in ipairs(char:GetDescendants()) do
-        if (obj:IsA("Tool") or obj:IsA("Model")) and isTrashName(obj.Name) then
-            return true
-        end
-    end
-    if not item then return false end
-    if item.Parent and item:IsDescendantOf(char) then return true end
-    local part = trashRoot(item)
-    if not part then return false end
-    for _, joint in ipairs(item:GetDescendants()) do
-        if joint:IsA("WeldConstraint") or joint:IsA("Weld") or joint:IsA("Motor6D") then
-            local attached, value = pcall(function()
-                return (joint.Part0 and joint.Part0:IsDescendantOf(char))
-                    or (joint.Part1 and joint.Part1:IsDescendantOf(char))
-            end)
-            if attached and value then return true end
-        end
-    end
-    return false
-end
-
-local function moveNearTrash(item)
-    local part = trashRoot(item)
-    local char = Player.Character
-    local root = getHRP(Player)
-    if not part or not char or not root then return false end
-    local diff = root.Position - part.Position
-    local flat = Vector3.new(diff.X, 0, diff.Z)
-    if flat.Magnitude < 0.2 then flat = Vector3.new(0, 0, 1) end
-    local target = part.Position + flat.Unit * 3.1
-    target = Vector3.new(target.X, root.Position.Y, target.Z)
-    return pcall(function()
-        char:PivotTo(CFrame.lookAt(target, Vector3.new(part.Position.X, target.Y, part.Position.Z)))
-    end)
-end
-
-local function readyTrash(token)
-    return Active and token == TrashToken and isAlive(Player)
-       and not Evading and not SafeTriggered and not ResetInProgress
-end
-
-local function collectTrashOnce(token, returnOrigin, withThrow)
-    local originChar = Player.Character
-    local origin = originChar and originChar:GetPivot()
-    local function restore()
-        if returnOrigin and origin and readyTrash(token) then
-            local char = Player.Character
-            if char then pcall(function() char:PivotTo(origin) end) end
-        end
-    end
-    local attempts = 0
-    while readyTrash(token) and attempts < 6 do
-        local item = findTrash()
-        if not item then
-            trashStatus(TrashIndexReady and "no available can; rescan/wait" or "indexing the map")
-            restore()
-            return false, "not found"
-        end
-        attempts = attempts + 1
-        TrashPhase = "approach"
-        trashStatus("going to can " .. attempts)
-        if moveNearTrash(item) then
-            -- Orient towards the available can without changing the camera.
-            local canPart = trashRoot(item)
-            local myRoot = getHRP(Player)
-            if canPart and myRoot then
-                local look = Vector3.new(canPart.Position.X, myRoot.Position.Y, canPart.Position.Z)
-                if (look - myRoot.Position).Magnitude > 0.1 then
-                    pcall(function() myRoot.CFrame = CFrame.lookAt(myRoot.Position, look) end)
-                end
-            end
-            task.wait(0.23)
-            if not readyTrash(token) then return false, "cancelled" end
-            TrashPhase = "pickup"
-            if trashRoot(item) and trashRoot(item):IsDescendantOf(workspace)
-                and sendM1() then
-                local deadline = os.clock() + CONFIG.TRASH_PICKUP_WAIT
-                while os.clock() < deadline and readyTrash(token) do
-                    if trashCarried(item) then break end
-                    task.wait(0.1)
-                end
-                if trashCarried(item) then
-                    TrashBlacklist[item] = os.clock() + 24
-                    if returnOrigin then
-                        TrashPhase = "teleport"
-                        restore()
-                        task.wait(CONFIG.TRASH_RETURN_PAUSE)
-                        return true, "picked + returned"
-                    end
-                    local enemy = chooseRandomOpponent()
-                    if not enemy then restore(); return false, "no target" end
-                    local part = getHRP(enemy)
-                    local char = Player.Character
-                    local myRoot = getHRP(Player)
-                    if part and char and myRoot and readyTrash(token) then
-                        local pos = part.Position - part.CFrame.LookVector * CONFIG.TRASH_TARGET_DISTANCE
-                        pos = Vector3.new(pos.X, myRoot.Position.Y, pos.Z)
-                        TrashPhase = "teleport"
-                        trashStatus("can confirmed; moving to " .. enemy.Name)
-                        pcall(function()
-                            char:PivotTo(CFrame.lookAt(pos,
-                                Vector3.new(part.Position.X, pos.Y, part.Position.Z)))
-                        end)
-                        task.wait(0.18)
-                        if readyTrash(token) and trashCarried(item) then
-                            TrashPhase = "throw"
-                            trashStatus("throw input sent")
-                            if sendM1() then
-                                -- Wait for the held prop to detach before considering
-                                -- the cycle successful. A successful Lua call != throw.
-                                local deadline = os.clock() + math.max(0.7, CONFIG.TRASH_THROW_WAIT)
-                                local released = false
-                                while readyTrash(token) and os.clock() < deadline do
-                                    if not trashCarried(item) then
-                                        released = true
-                                        break
-                                    end
-                                    task.wait(0.08)
-                                end
-                                if released then
-                                    TrashBlacklist[item] = os.clock() + 22
-                                    return true, "released: " .. enemy.Name .. " (hit unverified)"
-                                end
-                                TrashBlacklist[item] = os.clock() + 15
-                                return false, "throw not confirmed; retrying with next can"
-                            end
-                        end
-                    end
-                    restore()
-                    return false, "throw not verified"
-                end
-            end
-        end
-        TrashBlacklist[item] = os.clock() + 16
-        task.wait(0.15)
-    end
-    restore()
-    return false, "pickup not confirmed; skipped target"
-end
-
-local function stopTrash()
-    TrashAutoEnabled = false
-    TrashToken = TrashToken + 1
-    TrashBusy = false
-    TrashPhase = "idle"
-    TrashAutoButton.Text = "TRASH AUTO: OFF"
-    TrashAutoButton.BackgroundColor3 = Color3.fromRGB(95, 66, 140)
-end
-
-local function trashCycle()
-    if TrashAutoEnabled then
-        stopTrash()
-        trashStatus("AUTO stopped")
-        return
-    end
-    if not Active or TrashBusy then return end
-    TrashAutoEnabled = true
-    TrashToken = TrashToken + 1
-    local token = TrashToken
-    TrashAutoButton.Text = "TRASH AUTO: ON (TAP TO STOP)"
-    TrashAutoButton.BackgroundColor3 = Color3.fromRGB(30, 112, 74)
-    task.spawn(function()
-        while TrashAutoEnabled and Active and token == TrashToken do
-            if not isAlive(Player) then
-                trashStatus("waiting for respawn")
-                task.wait(1)
-            else
-            TrashBusy = true
-            local ok, worked, msg = pcall(collectTrashOnce, token, false, true)
-            if not ok then
-                trashStatus("error; resuming scan")
-            else
-                trashStatus(msg)
-            end
-            TrashBusy = false
-            TrashPhase = "idle"
-            local limit = os.clock() + (worked and 2.5 or CONFIG.TRASH_RETRY_WAIT)
-            while TrashAutoEnabled and Active and token == TrashToken and os.clock() < limit do
-                task.wait(0.2)
-            end
-            end
-        end
-        if token == TrashToken then stopTrash() end
-    end)
-end
-
-local function trashReturnOnce()
-    if not Active or TrashAutoEnabled or TrashBusy then
-        trashStatus("stop TRASH AUTO first")
-        return
-    end
-    TrashToken = TrashToken + 1
-    local token = TrashToken
-    TrashBusy = true
-    TrashReturnButton.Text = "PICKING..."
-    task.spawn(function()
-        local ok, worked, msg = pcall(collectTrashOnce, token, true, false)
-        if token == TrashToken then
-            TrashBusy = false
-            TrashPhase = "idle"
-            TrashReturnButton.Text = "ВЗЯТЬ МУСОР И ВЕРНУТЬСЯ"
-            trashStatus(ok and msg or "pickup error")
-        end
     end)
 end
 
@@ -2417,7 +2022,6 @@ StartBackstab = function()
         return
     end
     if StopRandomCycle then StopRandomCycle(false) end
-    if TrashBusy or TrashAutoEnabled then stopTrash() end
     if SafeTriggered then removeSafeZone(false) end
     if CONFIG.SAFE_ZONE then
         CONFIG.SAFE_ZONE = false
@@ -2517,72 +2121,6 @@ do
 local EmbeddedIYCode = nil
 local IYRunning = false
 local IYBusy = false
-local IYFloatSize = 34
-local IYFloat = Instance.new("TextButton")
-IYFloat.Name = "InvisPlusFloatingControl"
-IYFloat.Size = UDim2.fromOffset(IYFloatSize, IYFloatSize)
-IYFloat.Position = UDim2.new(1, -49, 0.50, 0)
-IYFloat.BorderSizePixel = 0
-IYFloat.BackgroundColor3 = Color3.fromRGB(19, 101, 120)
-IYFloat.TextColor3 = Color3.new(1, 1, 1)
-IYFloat.Font = Enum.Font.SourceSansBold
-IYFloat.TextSize = 12
-IYFloat.Text = "INV"
-IYFloat.ZIndex = 45
-IYFloat.Parent = ScreenGui
-Instance.new("UICorner", IYFloat).CornerRadius = UDim.new(1, 0)
-local IYFloatStroke = Instance.new("UIStroke", IYFloat)
-IYFloatStroke.Thickness = 1.5
-IYFloatStroke.Color = Color3.fromRGB(110, 220, 240)
-local IYDragInput, IYDragOrigin, IYDragPos, IYDragged = nil,nil,nil,false
-local IYSuppressTapUntil = 0
-local function adjustIYFloat(delta)
-    IYFloatSize = math.clamp(IYFloatSize + delta, 26, 58)
-    local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(400, 700)
-    local pos = IYFloat.AbsolutePosition
-    IYFloat.Size = UDim2.fromOffset(IYFloatSize, IYFloatSize)
-    IYFloat.Position = UDim2.fromOffset(
-        math.clamp(pos.X, 2, math.max(2, vp.X-IYFloatSize-2)),
-        math.clamp(pos.Y, 2, math.max(2, vp.Y-IYFloatSize-2)))
-    Refs.IYStatus.Text = "Размер: " .. IYFloatSize .. " px • кнопку INV можно перемещать пальцем"
-end
-Refs.IYSmallButton.Activated:Connect(function() adjustIYFloat(-4) end)
-Refs.IYLargeButton.Activated:Connect(function() adjustIYFloat(4) end)
-local function moveIYFloat(inputPosition)
-    if not IYDragOrigin or not IYDragPos then return end
-    local delta = Vector2.new(inputPosition.X,inputPosition.Y) - IYDragOrigin
-    if delta.Magnitude >= 8 then IYDragged = true end
-    if not IYDragged then return end
-    local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(400,700)
-    IYFloat.Position = UDim2.fromOffset(
-        math.floor(math.clamp(IYDragPos.X+delta.X,2,math.max(2,vp.X-IYFloatSize-2))),
-        math.floor(math.clamp(IYDragPos.Y+delta.Y,2,math.max(2,vp.Y-IYFloatSize-2))))
-end
-table.insert(CleanupConnections, IYFloat.InputBegan:Connect(function(input)
-    if input.UserInputType ~= Enum.UserInputType.Touch
-        and input.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
-    IYDragInput, IYDragOrigin = input, Vector2.new(input.Position.X,input.Position.Y)
-    IYDragPos, IYDragged = IYFloat.AbsolutePosition, false
-end))
-table.insert(CleanupConnections, UserInputService.InputChanged:Connect(function(input)
-    if not IYDragInput then return end
-    if IYDragInput.UserInputType == Enum.UserInputType.Touch then
-        if input ~= IYDragInput then return end
-    elseif input.UserInputType ~= Enum.UserInputType.MouseMovement then
-        return
-    end
-    moveIYFloat(input.Position)
-end))
-table.insert(CleanupConnections, UserInputService.InputEnded:Connect(function(input)
-    if not IYDragInput then return end
-    if IYDragInput.UserInputType == Enum.UserInputType.Touch then
-        if input ~= IYDragInput then return end
-    elseif input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-        return
-    end
-    if IYDragged then IYSuppressTapUntil = os.clock()+0.35 end
-    IYDragInput,IYDragOrigin,IYDragPos = nil,nil,nil
-end))
 local function findIYCommand()
     local environments = {}
     if type(sharedEnvironment) == "table" then table.insert(environments,sharedEnvironment) end
@@ -2628,25 +2166,6 @@ Refs.IYLaunchButton.Activated:Connect(function()
         Refs.IYStatus.Text = "IY открыт. Команды: invisible / visible / tpwalk 5"
     end
 end)
-IYFloat.Activated:Connect(function()
-    if os.clock() < IYSuppressTapUntil or IYBusy then return end
-    if StopRandomCycle then StopRandomCycle(false) end
-    if BackstabActive and StopBackstab then StopBackstab() end
-    if TrashBusy or TrashAutoEnabled then stopTrash() end
-    if not startBundledIY() then return end
-    local command = findIYCommand()
-    if not command then
-        Refs.IYStatus.Text = "Введи toggleinvis в командной строке IY"
-        return
-    end
-    local ok, err = pcall(command, "toggleinvis")
-    if ok then
-        Refs.IYStatus.Text = "Команда toggleinvis отправлена в IY"
-    else
-        Refs.IYStatus.Text = "IY INV: " .. tostring(err):sub(1, 65)
-    end
-end)
-
 
 -- User-supplied IY code (bundled, launches only after manual tap).
 EmbeddedIYCode = [====[
@@ -4261,7 +3780,7 @@ PluginsHint.Position = UDim2.new(0, 25, 0, 40)
 PluginsHint.Size = UDim2.new(0, 200, 0, 50)
 PluginsHint.Font = Enum.Font.SourceSansItalic
 PluginsHint.TextSize = 16
-PluginsHint.Text = "Download plugins from the IY Discord (discord.gg/78ZuWSq)"
+PluginsHint.Text = "Plugins are optional; use trusted local files only."
 PluginsHint.TextColor3 = Color3.new(1, 1, 1)
 PluginsHint.TextStrokeColor3 = Color3.new(1, 1, 1)
 PluginsHint.TextWrapped = true
@@ -5536,9 +5055,8 @@ reference = (function()
 		{111,"TextLabel",{BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=1,Font=3,Name="Text",Parent={105},Position=UDim2.new(0,8,0,148),Size=UDim2.new(1,-8,0,16),Text="Setting up 'goto $1' on the OnChatted event will teleport you to any player that chats.",TextColor3=Color3.new(1,1,1),TextSize=14,TextWrapped=true,TextXAlignment=0,TextYAlignment=0,ZIndex=10,}},
 		{112,"Frame",{BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=1,Name="Section",Parent={7},Size=UDim2.new(1,0,0,105),ZIndex=10,}},
 		{113,"TextLabel",{BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=1,Font=4,Name="Header",Parent={112},Position=UDim2.new(0,8,0,5),Size=UDim2.new(1,-8,0,20),Text="Get Further Help",TextColor3=Color3.new(1,1,1),TextSize=20,TextXAlignment=0,ZIndex=10,}},
-		{114,"TextLabel",{BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=1,Font=3,Name="Text",Parent={112},Position=UDim2.new(0,8,0,30),Size=UDim2.new(1,-8,0,32),Text="You can join the Discord server to get support with IY,  and read up on more documentation such as the Plugin API.",TextColor3=Color3.new(1,1,1),TextSize=14,TextWrapped=true,TextXAlignment=0,ZIndex=10,}},
+		{114,"TextLabel",{BackgroundColor3=Color3.new(1,1,1),BackgroundTransparency=1,Font=3,Name="Text",Parent={112},Position=UDim2.new(0,8,0,30),Size=UDim2.new(1,-8,0,32),Text="Built-in command descriptions are available in this reference.",TextColor3=Color3.new(1,1,1),TextSize=14,TextWrapped=true,TextXAlignment=0,ZIndex=10,}},
 		{115,"Frame",{BackgroundColor3=Color3.new(0.1803921610117,0.1803921610117,0.1843137294054),BorderSizePixel=0,Name="Line",Parent={112},Position=UDim2.new(0,10,1,-1),Size=UDim2.new(1,-20,0,1),Visible=false,ZIndex=10,}},
-		{116,"TextButton",{BackgroundColor3=Color3.new(0.48627451062202,0.61960786581039,0.85098040103912),BorderColor3=Color3.new(0.1803921610117,0.1803921610117,0.1843137294054),Font=4,Name="InviteButton",Parent={112},Position=UDim2.new(0,5,0,75),Size=UDim2.new(1,-10,0,25),Text="Copy Discord Invite Link (https://discord.gg/78ZuWSq)",TextColor3=Color3.new(0.1803921610117,0.1803921610117,0.1843137294054),TextSize=16,ZIndex=10,}},
 	})
 	for i,v in pairs(main.Content.List:GetDescendants()) do
 		if v:IsA("TextLabel") then
@@ -5551,21 +5069,6 @@ reference = (function()
 	main.Name = randomString()
 	main.TopBar.Close.MouseButton1Click:Connect(function()
 		main:TweenPosition(UDim2.new(0.5,-250,0,-500), "InOut", "Quart", 0.5, true, nil)
-	end)
-	local inviteButton = main:FindFirstChild("InviteButton",true)
-	local lastPress = nil
-	inviteButton.MouseButton1Click:Connect(function()
-		if everyClipboard then
-			toClipboard("https://discord.gg/78ZuWSq")
-			inviteButton.Text = "Copied"
-		else
-			inviteButton.Text = "No Clipboard Function, type out the link"
-		end
-		local pressTime = tick()
-		lastPress = pressTime
-		wait(2)
-		if lastPress ~= pressTime then return end
-		inviteButton.Text = "Copy Discord Invite Link (https://discord.gg/78ZuWSq)"
 	end)
 	dragGUI(main)
 	main.Parent = ScaledHolder
@@ -6619,30 +6122,7 @@ end
 
 avatarcache = {}
 function sendChatWebhook(player, message)
-	if httprequest and vtype(logsWebhook, "string") then
-		local id = player.UserId
-		local avatar = avatarcache[id]
-		if not avatar then
-			local d = HttpService:JSONDecode(httprequest({
-				Url = "https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=" .. id .. "&size=420x420&format=Png&isCircular=false",
-				Method = "GET"
-			}).Body)["data"]
-			avatar = d and d[1].state == "Completed" and d[1].imageUrl or "https://raw.githubusercontent.com/infyiff/backup/refs/heads/main/assets/plain.png"
-			avatarcache[id] = avatar
-		end
-		local log = HttpService:JSONEncode({
-			content = message,
-			avatar_url = avatar,
-			username = formatUsername(player),
-			allowed_mentions = {parse = {}}
-		})
-		httprequest({
-			Url = logsWebhook,
-			Method = "POST",
-			Headers = {["Content-Type"] = "application/json"},
-			Body = log
-		})
-	end
+    -- External chat forwarding disabled.
 end
 
 ChatLog = function(player)
@@ -7123,7 +6603,6 @@ function autoComplete(str,curText)
 end
 
 CMDs = {}
-CMDs[#CMDs + 1] = {NAME = 'discord / support / help', DESC = 'Invite to the Infinite Yield discord server.'}
 CMDs[#CMDs + 1] = {NAME = 'guiscale [number]', DESC = 'Changes the size of the gui. [number] accepts decimals and whole numbers. Min is 0.4 and Max is 2'}
 CMDs[#CMDs + 1] = {NAME = 'console', DESC = 'Opens the Roblox console'}
 CMDs[#CMDs + 1] = {NAME = 'oldconsole', DESC = 'Loads an old-themed Roblox console'}
@@ -7256,7 +6735,6 @@ CMDs[#CMDs + 1] = {NAME = '', DESC = ''}
 CMDs[#CMDs + 1] = {NAME = 'logs', DESC = 'Opens the logs GUI'}
 CMDs[#CMDs + 1] = {NAME = 'chatlogs / clogs', DESC = 'Log what people say or whisper'}
 CMDs[#CMDs + 1] = {NAME = 'joinlogs / jlogs', DESC = 'Log when people join'}
-CMDs[#CMDs + 1] = {NAME = 'chatlogswebhook / logswebhook [url]', DESC = 'Set a discord webhook for chatlogs to go to (provide no url to disable this)'}
 CMDs[#CMDs + 1] = {NAME = 'chat / say [text]', DESC = 'Makes you chat a string (possible mute bypass)'}
 CMDs[#CMDs + 1] = {NAME = 'spam [text]', DESC = 'Makes you spam the chat'}
 CMDs[#CMDs + 1] = {NAME = 'unspam', DESC = 'Turns off spam'}
@@ -9204,29 +8682,6 @@ addcmd('clraliases',{},function(args, speaker)
 	refreshaliases()
 end)
 
-addcmd('discord', {'support', 'help'}, function(args, speaker)
-	if everyClipboard then
-		toClipboard('https://discord.com/invite/78ZuWSq')
-		notify('Discord Invite', 'Copied to clipboard!\ndiscord.gg/78ZuWSq')
-	else
-		notify('Discord Invite', 'discord.gg/78ZuWSq')
-	end
-	if httprequest then
-		httprequest({
-			Url = 'http://127.0.0.1:6463/rpc?v=1',
-			Method = 'POST',
-			Headers = {
-				['Content-Type'] = 'application/json',
-				Origin = 'https://discord.com'
-			},
-			Body = HttpService:JSONEncode({
-				cmd = 'INVITE_BROWSER',
-				nonce = HttpService:GenerateGUID(false),
-				args = {code = '78ZuWSq'}
-			})
-		})
-	end
-end)
 
 addcmd('keepiy', {}, function(args, speaker)
 	if queueteleport then
@@ -14400,13 +13855,6 @@ addcmd("joinlogs", {"jlogs"}, function(args, speaker)
 	logs:TweenPosition(UDim2.new(0, 0, 1, -265), "InOut", "Quart", 0.3, true, nil)
 end)
 
-addcmd("chatlogswebhook", {"logswebhook"}, function(args, speaker)
-	if not httprequest then
-		return notify("Incompatible Exploit", "Your exploit does not support this command (missing request)")
-	end
-	logsWebhook = args[1] or nil
-	updatesaves()
-end)
 
 flinging = false
 addcmd('fling',{},function(args, speaker)
@@ -16229,10 +15677,6 @@ StartRandomCycle = function()
         setRandomStatus("Сначала дождись появления персонажа")
         return
     end
-    if TrashAutoEnabled or TrashBusy then
-        setRandomStatus("Сначала выключи работу с мусором")
-        return
-    end
     if BackstabActive and StopBackstab then StopBackstab() end
     if CONFIG.SAFE_ZONE and SafeTriggered then
         setRandomStatus("Отключи активную безопасную зону")
@@ -16478,16 +15922,6 @@ RandomTPButton.Activated:Connect(function()
     if StartBackstab then StartBackstab() end
 end)
 
-TrashAutoButton.Activated:Connect(function()
-    if StopRandomCycle then StopRandomCycle(true) end
-    if BackstabActive and StopBackstab then StopBackstab() end
-    trashCycle()
-end)
-TrashReturnButton.Activated:Connect(function()
-    if StopRandomCycle then StopRandomCycle(true) end
-    if BackstabActive and StopBackstab then StopBackstab() end
-    trashReturnOnce()
-end)
 
 -- 20 Hz local speed assistance; writes may be rejected / corrected by game.
 
@@ -16554,11 +15988,9 @@ Shutdown = function()
     safe(function() if StopRandomCycle then StopRandomCycle(false) end end)
     Active = false
     safe(Visual.stop)
-    safe(stopTrash)
     safe(function() setAimEnabled(false) end)
     safe(function() RunService:UnbindFromRenderStep(AimRenderName) end)
     safe(function() RunService:UnbindFromRenderStep(MoveRenderName) end)
-    safe(function() if TrashIndexConnection then TrashIndexConnection:Disconnect() end end)
     safe(function() CONFIG.SPEED_ENABLED = false; releaseSpeed() end)
     safe(function() if SpeedLoopConnection then SpeedLoopConnection:Disconnect() end end)
     safe(function() if PositionConnection then PositionConnection:Disconnect() end end)
@@ -16576,12 +16008,12 @@ Shutdown = function()
         if conn then safe(function() conn:Disconnect() end) end
     end
     safe(function() if HiddenFolder then HiddenFolder:Destroy() end end)
-    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V22_SHUTDOWN == Shutdown then
-        sharedEnvironment.__TSB_DELTA_V22_SHUTDOWN = nil
+    if sharedEnvironment and sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN == Shutdown then
+        sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN = nil
     end
     safe(function() ScreenGui:Destroy() end)
 end
-if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V22_SHUTDOWN = Shutdown end
+if sharedEnvironment then sharedEnvironment.__TSB_DELTA_V23_SHUTDOWN = Shutdown end
 
 -- ============================================================
 -- PLAYER JOIN / LEAVE
@@ -16612,11 +16044,6 @@ CharacterConnection = Player.CharacterAdded:Connect(function(character)
     local resumeFollow = FollowWanted and SelectedTarget ~= nil
     if BackstabActive and StopBackstab then StopBackstab(true) end
     -- Keep the long-running AUTO toggle armed across respawns.
-    if not TrashAutoEnabled then
-        TrashToken = TrashToken + 1
-        TrashBusy = false
-        TrashPhase = "idle"
-    end
     -- Keep AIM lock on the same player after our own respawn.
     OriginalWalkSpeed = nil
     SpeedHumanoid = nil
